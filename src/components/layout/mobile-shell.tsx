@@ -29,20 +29,20 @@ type MobileShellProps = {
 
 export function MobileShell({ active, children }: MobileShellProps) {
   return (
-    <div className="min-h-screen bg-[#eef2f6] px-3 py-4 text-[#17202f]">
-      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[28px] border border-[#ccd5df] bg-[#f8fafc] shadow-xl">
-        <header className="sticky top-0 z-20 border-b border-[#d9dee8] bg-white/95 px-5 py-4 backdrop-blur">
-          <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff6ec_0,_#f5efe7_34%,_#efe7dc_100%)] px-3 py-4 text-[#17202f]">
+      <div className="mx-auto min-h-[calc(100vh-2rem)] max-w-[430px] overflow-hidden rounded-[30px] border border-[#dccfbe] bg-[#fcfaf7] shadow-[0_18px_60px_rgba(82,58,36,0.16)]">
+        <header className="sticky top-0 z-20 border-b border-[#eadfce] bg-[#fcfaf7]/95 px-5 py-4 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium text-[#607089]">OA System</p>
-              <h1 className="text-xl font-semibold">{titles[active]}</h1>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#9a6b3d]">KOMO</p>
+              <h1 className="text-xl font-semibold text-[#17202f]">{titles[active]}</h1>
             </div>
             {active === "adminSchedule" || active === "adminApproval" ? (
-              <Link href="/" className="rounded-full bg-[#e6eef5] px-3 py-2 text-xs font-medium text-[#184e77]">
-                返回 App
+              <Link href="/" className="rounded-full bg-[#f0e5d7] px-3 py-2 text-xs font-medium text-[#8a5a2f]">
+                返回工作台
               </Link>
             ) : (
-              <Link href="/admin/schedule" className="rounded-full bg-[#e6eef5] px-3 py-2 text-xs font-medium text-[#184e77]">
+              <Link href="/admin/schedule" className="rounded-full bg-[#f0e5d7] px-3 py-2 text-xs font-medium text-[#8a5a2f]">
                 管理端
               </Link>
             )}
@@ -58,14 +58,14 @@ export function MobileShell({ active, children }: MobileShellProps) {
 
 function BottomNav({ active }: { active: MainView }) {
   return (
-    <nav className="fixed bottom-4 left-1/2 z-30 grid w-[min(430px,calc(100vw-1.5rem))] -translate-x-1/2 grid-cols-5 rounded-t-3xl border border-[#d9dee8] bg-white px-2 py-2 shadow-lg">
+    <nav className="fixed bottom-4 left-1/2 z-30 grid w-[min(430px,calc(100vw-1.5rem))] -translate-x-1/2 grid-cols-5 rounded-t-3xl border border-[#eadfce] bg-[#fffdf9] px-2 py-2 shadow-[0_10px_32px_rgba(82,58,36,0.14)]">
       {navItems.map((item) => (
         <Link
           key={item.key}
           href={item.href}
           className={cx(
-            "rounded-2xl px-1 py-2 text-center text-xs font-medium",
-            active === item.key ? "bg-[#184e77] text-white" : "text-[#607089]",
+            "rounded-2xl px-1 py-2 text-center text-xs font-medium transition",
+            active === item.key ? "bg-[#8a5a2f] text-white" : "text-[#7b6c5c]",
           )}
         >
           <span className="block text-lg leading-5">{item.label.slice(0, 1)}</span>

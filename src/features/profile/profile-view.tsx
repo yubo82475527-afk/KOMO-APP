@@ -9,9 +9,10 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
     <>
       <section className="rounded-3xl bg-white p-5 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="grid size-16 place-items-center rounded-full bg-[#184e77] text-xl font-semibold text-white">{avatar}</div>
+          <div className="grid size-16 place-items-center rounded-full bg-[#8a5a2f] text-xl font-semibold text-white">{avatar}</div>
           <div>
-            <h2 className="text-lg font-semibold">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#9a6b3d]">KOMO Member</p>
+            <h2 className="mt-1 text-lg font-semibold">
               {viewer.profile.fullName} · {viewer.profile.employeeNo ?? "未设置工号"}
             </h2>
             <p className="text-sm text-[#607089]">{viewer.profile.departmentName ?? "未分配部门"}</p>
@@ -28,8 +29,7 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
           `用户 ID：${viewer.user.id.slice(0, 8)}...`,
         ]}
       />
-      <MenuSection title="试运行说明" items={["当前页面使用真实 Supabase 用户档案。", "如需修改角色，请在 user_roles 中维护。", "如需修改个人信息，请同步更新 profiles。"]} />
-      <MenuSection title="后续开放" items={["请假记录", "补卡申请", "加班申请"]} />
+      <MenuSection title="常用记录" items={["请假记录", "打卡记录", "排班历史"]} />
       <SignOutButton redirectTo="/profile" />
     </>
   );

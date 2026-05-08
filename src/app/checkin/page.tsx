@@ -1,5 +1,10 @@
-import { OaMobileApp } from "@/components/oa-mobile-app";
+import { MobileShell } from "@/components/layout/mobile-shell";
+import { CheckinView } from "@/features/checkin/checkin-view";
 
 export default function CheckinPage() {
-  return <OaMobileApp view="checkin" />;
+  return (
+    <MobileShell active="checkin">
+      <CheckinView />
+    </MobileShell>
+  );
 }
