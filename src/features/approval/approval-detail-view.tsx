@@ -3,27 +3,21 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatDateTime } from "@/lib/date-time";
+import { getDictionary } from "@/lib/i18n";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { cx } from "@/components/ui/class-name";
 import { Section } from "@/components/ui/section";
 import type { ApprovalDetailPageData, ApprovalRequestStatus } from "./approval-model";
 
-const statusText: Record<ApprovalRequestStatus, string> = {
-  draft: "草稿",
-  submitted: "审批中",
-  waiting: "等待中",
-  pending: "审批中",
-  approved: "已通过",
-  rejected: "已拒绝",
-  cancelled: "已撤回",
-};
-
 export function ApprovalDetailView({ data }: { data: Extract<ApprovalDetailPageData, { state: "ready" }> }) {
+  const dictionary = getDictionary(data.locale);
   const router = useRouter();
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [message, setMessage] = useState("");
   const detail = data.detail;
+  const statusText: Record<ApprovalRequestStatus, string> = dictionary.approval.statuses;
 
   async function act(action: "approved" | "rejected") {
     setStatus("submitting");
@@ -43,7 +37,7 @@ export function ApprovalDetailView({ data }: { data: Extract<ApprovalDetailPageD
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
       setStatus("error");
-      setMessage(payload.error ?? "审批处理失败，请稍后重试。");
+      setMessage(payload.error ?? dictionary.common.retryLater);
       return;
     }
 
@@ -51,28 +45,28 @@ export function ApprovalDetailView({ data }: { data: Extract<ApprovalDetailPageD
   }
 
   return (
-    <MobileShell active="approval">
+    <MobileShell active="approval" locale={data.locale}>
       <Section
-        title="申请信息"
+        title={dictionary.approval.detailTitle}
         right={<span className={cx("text-sm font-medium", detail.status === "rejected" ? "text-[#c1121f]" : detail.status === "approved" ? "text-[#2d6a4f]" : "text-[#184e77]")}>{statusText[detail.status]}</span>}
       >
         <div className="space-y-3 text-sm">
           <p className="text-base font-semibold">{detail.title}</p>
           <p>
-            申请人：{detail.requesterName}
+            {dictionary.approval.applicant}：{detail.requesterName}
             {detail.requesterDepartment ? ` · ${detail.requesterDepartment}` : ""}
           </p>
-          <p>请假类型：{detail.payload.leaveType}</p>
+          <p>{dictionary.approval.leaveType}：{detail.payload.leaveType}</p>
           <p>
-            日期范围：{detail.payload.startDate} 至 {detail.payload.endDate}
+            {dictionary.approval.dateRange}：{detail.payload.startDate} - {detail.payload.endDate}
           </p>
-          <p>请假天数：{detail.payload.days} 天</p>
-          <p className="leading-6">原因：{detail.payload.reason}</p>
-          <p className="text-[#8a97a8]">提交时间：{formatDateTime(detail.submittedAt ?? detail.createdAt)}</p>
+          <p>{dictionary.approval.days}：{detail.payload.days}</p>
+          <p className="leading-6">{dictionary.approval.reason}：{detail.payload.reason}</p>
+          <p className="text-[#8a97a8]">{dictionary.approval.submittedAt}：{formatDateTime(detail.submittedAt ?? detail.createdAt, data.locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</p>
         </div>
       </Section>
 
-      <Section title="审批进度">
+      <Section title={dictionary.approval.progress}>
         <div className="space-y-3">
           {detail.steps.map((step) => (
             <div key={step.id} className="rounded-xl bg-[#f6f8fb] p-3">
@@ -83,45 +77,53 @@ export function ApprovalDetailView({ data }: { data: Extract<ApprovalDetailPageD
                   </p>
                   <p className="mt-1 text-sm text-[#607089]">{step.approverName}</p>
                 </div>
-                <StepBadge status={step.status} />
+                <StepBadge status={step.status} locale={data.locale} />
               </div>
-              {step.comment ? <p className="mt-2 text-sm text-[#526174]">意见：{step.comment}</p> : null}
-              {step.actedAt ? <p className="mt-1 text-xs text-[#8a97a8]">{formatDateTime(step.actedAt)}</p> : null}
+              {step.comment ? <p className="mt-2 text-sm text-[#526174]">{dictionary.approval.comment}：{step.comment}</p> : null}
+              {step.actedAt ? <p className="mt-1 text-xs text-[#8a97a8]">{formatDateTime(step.actedAt, data.locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</p> : null}
             </div>
           ))}
         </div>
       </Section>
 
       {data.canAct ? (
-        <Section title="审批操作">
+        <Section title={dictionary.approval.action}>
           <textarea
             value={comment}
             onChange={(event) => setComment(event.target.value)}
             rows={4}
-            placeholder="填写审批意见（可选）"
+            placeholder={dictionary.approval.actionPlaceholder}
             className="w-full resize-none rounded-xl border border-[#d9dee8] px-3 py-3 text-sm"
           />
           {message ? <p className="mt-3 text-sm text-[#c1121f]">{message}</p> : null}
           <div className="mt-3 grid grid-cols-2 gap-3">
             <button type="button" disabled={status === "submitting"} onClick={() => void act("rejected")} className="rounded-xl border border-[#c1121f] py-3 text-sm font-medium text-[#c1121f] disabled:opacity-60">
-              拒绝
+              {dictionary.approval.reject}
             </button>
             <button type="button" disabled={status === "submitting"} onClick={() => void act("approved")} className="rounded-xl bg-[#2d6a4f] py-3 text-sm font-medium text-white disabled:bg-[#8a97a8]">
-              通过
+              {dictionary.approval.approve}
             </button>
           </div>
         </Section>
       ) : null}
 
       <Link href="/approval" className="block rounded-2xl bg-white py-3 text-center text-sm font-medium text-[#184e77] shadow-sm">
-        返回审批列表
+        {dictionary.approval.backToList}
       </Link>
     </MobileShell>
   );
 }
 
-function StepBadge({ status }: { status: string }) {
-  const label = status === "pending" ? "待审批" : status === "approved" ? "已通过" : status === "rejected" ? "已拒绝" : "等待中";
+function StepBadge({ status, locale }: { status: string; locale: Extract<ApprovalDetailPageData, { state: "ready" }>["locale"] }) {
+  const dictionary = getDictionary(locale);
+  const label =
+    status === "pending"
+      ? dictionary.approval.stepPending
+      : status === "approved"
+        ? dictionary.approval.stepApproved
+        : status === "rejected"
+          ? dictionary.approval.stepRejected
+          : dictionary.approval.stepWaiting;
   return (
     <span
       className={cx(
@@ -138,15 +140,4 @@ function StepBadge({ status }: { status: string }) {
       {label}
     </span>
   );
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
 }

@@ -23,6 +23,7 @@ export type Database = {
           email: string | null;
           department_id: string | null;
           manager_id: string | null;
+          preferred_locale: "zh-CN" | "en" | null;
           status: "active" | "disabled";
           created_at: string;
         };

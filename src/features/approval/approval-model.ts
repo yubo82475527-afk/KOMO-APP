@@ -1,3 +1,5 @@
+import type { SupportedLocale } from "@/lib/i18n";
+
 export type ApprovalRequestStatus = "draft" | "submitted" | "waiting" | "pending" | "approved" | "rejected" | "cancelled";
 export type ApprovalStepStatus = "waiting" | "pending" | "approved" | "rejected";
 export type ApproverType = "direct_manager" | "department_head" | "role" | "user";
@@ -79,6 +81,7 @@ export type ApprovalPageReadyData = {
     departmentName: string | null;
     roles: string[];
   };
+  locale: SupportedLocale;
   myRequests: ApprovalListItem[];
   pendingApprovals: ApprovalListItem[];
   activeTemplateName: string | null;
@@ -99,6 +102,7 @@ export type LeaveApplyPageData =
         fullName: string;
         departmentName: string | null;
       };
+      locale: SupportedLocale;
       activeTemplateName: string | null;
     };
 
@@ -113,6 +117,7 @@ export type ApprovalDetailPageData =
         fullName: string;
         roles: string[];
       };
+      locale: SupportedLocale;
       detail: ApprovalDetailRecord;
       canAct: boolean;
     };

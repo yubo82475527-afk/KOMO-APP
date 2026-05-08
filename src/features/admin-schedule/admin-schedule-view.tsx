@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatMessage, getDictionary, type SupportedLocale } from "@/lib/i18n";
 import { cx } from "@/components/ui/class-name";
 import { Section } from "@/components/ui/section";
 import { TabButton } from "@/components/ui/tab-button";
@@ -11,7 +12,8 @@ import { parseScheduleFile, type ImportPreview, type ImportValidationError } fro
 type AdminScheduleMode = "list" | "import";
 type ImportStatus = "idle" | "previewed" | "submitting" | "success" | "error";
 
-export function AdminScheduleView() {
+export function AdminScheduleView({ locale }: { locale: SupportedLocale }) {
+  const dictionary = getDictionary(locale);
   const [mode, setMode] = useState<AdminScheduleMode>("list");
   const [duplicateMode, setDuplicateMode] = useState<"覆盖" | "跳过">("覆盖");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -23,26 +25,27 @@ export function AdminScheduleView() {
     <>
       <div className="grid grid-cols-2 gap-2">
         <Link href="/admin/schedule" className="rounded-xl bg-[#184e77] px-3 py-3 text-center text-sm font-medium text-white">
-          排班管理
+          {dictionary.adminSchedule.pageTitle}
         </Link>
         <Link href="/admin/approval" className="rounded-xl bg-white px-3 py-3 text-center text-sm font-medium text-[#184e77]">
-          审批配置
+          {dictionary.adminSchedule.approvalConfig}
         </Link>
       </div>
 
       <div className="flex gap-2">
         <TabButton active={mode === "list"} onClick={() => setMode("list")}>
-          排班列表
+          {dictionary.adminSchedule.scheduleList}
         </TabButton>
         <TabButton active={mode === "import"} onClick={() => setMode("import")}>
-          导入排班
+          {dictionary.adminSchedule.importSchedule}
         </TabButton>
       </div>
 
       {mode === "list" ? (
-        <ScheduleList />
+        <ScheduleList locale={locale} />
       ) : (
         <ScheduleImport
+          locale={locale}
           preview={preview}
           setPreview={setPreview}
           duplicateMode={duplicateMode}
@@ -59,10 +62,12 @@ export function AdminScheduleView() {
   );
 }
 
-function ScheduleList() {
+function ScheduleList({ locale }: { locale: SupportedLocale }) {
+  const dictionary = getDictionary(locale);
+
   return (
     <>
-      <Section title="筛选器">
+      <Section title={dictionary.adminSchedule.filters}>
         <div className="grid grid-cols-3 gap-2">
           {["客服部", "本周", "全部班次"].map((item) => (
             <button key={item} type="button" className="rounded-xl bg-[#eef2f6] px-2 py-3 text-sm">
@@ -72,7 +77,7 @@ function ScheduleList() {
         </div>
       </Section>
 
-      <Section title="排班列表示意" right={<button type="button" className="text-sm text-[#184e77]">新建</button>}>
+      <Section title={dictionary.adminSchedule.listDemo} right={<button type="button" className="text-sm text-[#184e77]">{dictionary.adminSchedule.create}</button>}>
         <div className="space-y-3">
           {adminScheduleRows.map((row) => (
             <div key={row.employeeNo} className="rounded-xl bg-[#f6f8fb] p-3">
@@ -81,8 +86,8 @@ function ScheduleList() {
                   {row.employee} {row.employeeNo}
                 </p>
                 <div className="flex gap-2 text-sm text-[#184e77]">
-                  <button type="button">编辑</button>
-                  <button type="button">删除</button>
+                  <button type="button">{dictionary.adminSchedule.edit}</button>
+                  <button type="button">{dictionary.adminSchedule.delete}</button>
                 </div>
               </div>
               <p className="mt-1 text-sm text-[#607089]">{row.department}</p>
@@ -102,6 +107,7 @@ function ScheduleList() {
 }
 
 function ScheduleImport({
+  locale,
   preview,
   setPreview,
   duplicateMode,
@@ -113,6 +119,7 @@ function ScheduleImport({
   serverErrors,
   setServerErrors,
 }: {
+  locale: SupportedLocale;
   preview: ImportPreview | null;
   setPreview: (value: ImportPreview | null) => void;
   duplicateMode: "覆盖" | "跳过";
@@ -124,6 +131,7 @@ function ScheduleImport({
   serverErrors: ImportValidationError[];
   setServerErrors: (value: ImportValidationError[]) => void;
 }) {
+  const dictionary = getDictionary(locale);
   const previewRows = useMemo(() => preview?.rows.slice(0, 8) ?? [], [preview]);
 
   async function handleFileChange(file: File | null) {
@@ -139,7 +147,7 @@ function ScheduleImport({
     if (!file.name.toLowerCase().endsWith(".csv")) {
       setPreview(null);
       setStatus("error");
-      setServerMessage("当前试运行版本先支持标准 CSV 文件导入，原生 .xlsx 会在下一阶段补上。");
+      setServerMessage(dictionary.adminSchedule.csvOnly);
       return;
     }
 
@@ -148,7 +156,7 @@ function ScheduleImport({
 
     if (nextPreview.rows.length === 0) {
       setStatus("error");
-      setServerMessage("没有识别到有效排班数据。请确认表头包含“工号、姓名、部门”和日期列，并尽量使用系统下载的模板。");
+      setServerMessage(dictionary.adminSchedule.previewEmpty);
       return;
     }
 
@@ -185,44 +193,45 @@ function ScheduleImport({
 
     if (!response.ok) {
       setStatus("error");
-      setServerMessage(payload.error ?? "导入失败，请稍后重试。");
+      setServerMessage(payload.error ?? dictionary.common.retryLater);
       setServerErrors(payload.errors ?? []);
       return;
     }
 
     setStatus("success");
-    setServerMessage(`导入完成：成功 ${payload.success_rows ?? 0} 行，跳过 ${payload.skipped_rows ?? 0} 行。`);
+    setServerMessage(
+      formatMessage(dictionary.adminSchedule.importCompleted, {
+        success: String(payload.success_rows ?? 0),
+        skipped: String(payload.skipped_rows ?? 0),
+      }),
+    );
     setServerErrors([]);
   }
 
   return (
     <>
-      <Section title="导入说明">
-        <p className="text-sm leading-6 text-[#607089]">
-          当前试运行链路支持按标准排班模板导入。模板必须是宽表格式：工号、姓名、部门，然后每个日期一列，单元格填写 `ZC`、`ZB`、`WC`、`XIU` 或 `-`。
-        </p>
-        <p className="mt-2 text-sm leading-6 text-[#607089]">
-          已兼容 Excel 常见中文 CSV 编码；如果仍识别不到，请优先使用下方模板重新下载后填写。
-        </p>
+      <Section title={dictionary.adminSchedule.importGuide}>
+        <p className="text-sm leading-6 text-[#607089]">{dictionary.adminSchedule.importGuideBody}</p>
+        <p className="mt-2 text-sm leading-6 text-[#607089]">{dictionary.adminSchedule.importGuideEncoding}</p>
         <a
           href="/templates/schedule-import-template.csv"
           download
           className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-[#e6eef5] py-3 text-sm font-medium text-[#184e77]"
         >
-          下载标准模板
+          {dictionary.adminSchedule.downloadTemplate}
         </a>
       </Section>
 
-      <Section title="导入方式">
+      <Section title={dictionary.adminSchedule.importMethod}>
         <label className="block rounded-2xl border border-dashed border-[#9aa8b8] bg-[#f6f8fb] p-5 text-center text-sm font-medium text-[#17202f]">
-          选择标准模板 CSV 文件
+          {dictionary.adminSchedule.chooseCsv}
           <input type="file" accept=".csv" className="hidden" onChange={(event) => void handleFileChange(event.target.files?.[0] ?? null)} />
         </label>
       </Section>
 
-      <Section title="文件预览">
-        <p className="text-sm text-[#607089]">文件名：{preview?.fileName ?? "尚未选择文件"}</p>
-        <p className="mt-1 text-sm text-[#607089]">目标月份：{preview?.targetMonth ? preview.targetMonth.slice(0, 7) : "未识别"}</p>
+      <Section title={dictionary.adminSchedule.filePreview}>
+        <p className="text-sm text-[#607089]">{dictionary.adminSchedule.fileName}：{preview?.fileName ?? dictionary.adminSchedule.noFileSelected}</p>
+        <p className="mt-1 text-sm text-[#607089]">{dictionary.adminSchedule.targetMonth}：{preview?.targetMonth ? preview.targetMonth.slice(0, 7) : dictionary.adminSchedule.monthUnknown}</p>
 
         {previewRows.length > 0 && (
           <div className="mt-3 overflow-hidden rounded-xl border border-[#d9dee8] text-xs">
@@ -247,32 +256,35 @@ function ScheduleImport({
 
         {preview && (
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-[#eef7f0] p-3 text-sm text-[#2d6a4f]">可导入 {preview.validRows} 行</div>
-            <div className="rounded-xl bg-[#fff5f5] p-3 text-sm text-[#c1121f]">校验错误 {preview.invalidRows} 行</div>
+            <div className="rounded-xl bg-[#eef7f0] p-3 text-sm text-[#2d6a4f]">{dictionary.adminSchedule.importableRows} {preview.validRows}</div>
+            <div className="rounded-xl bg-[#fff5f5] p-3 text-sm text-[#c1121f]">{dictionary.adminSchedule.invalidRows} {preview.invalidRows}</div>
           </div>
         )}
       </Section>
 
-      <Section title="导入配置">
+      <Section title={dictionary.adminSchedule.importSettings}>
         <div className="grid grid-cols-2 gap-2">
-          {["覆盖", "跳过"].map((item) => (
+          {[
+            { key: "覆盖" as const, label: dictionary.adminSchedule.overwrite },
+            { key: "跳过" as const, label: dictionary.adminSchedule.skip },
+          ].map((item) => (
             <button
-              key={item}
+              key={item.key}
               type="button"
-              onClick={() => onDuplicateModeChange(item as "覆盖" | "跳过")}
-              className={cx("rounded-xl py-3 text-sm font-medium", duplicateMode === item ? "bg-[#184e77] text-white" : "bg-[#eef2f6] text-[#526174]")}
+              onClick={() => onDuplicateModeChange(item.key)}
+              className={cx("rounded-xl py-3 text-sm font-medium", duplicateMode === item.key ? "bg-[#184e77] text-white" : "bg-[#eef2f6] text-[#526174]")}
             >
-              {item}重复数据
+              {item.label} {dictionary.adminSchedule.overwriteDuplicates}
             </button>
           ))}
         </div>
       </Section>
 
       {preview?.errors.length ? (
-        <Section title="预览错误">
+        <Section title={dictionary.adminSchedule.previewErrors}>
           <div className="space-y-2 text-sm text-[#c1121f]">
             {preview.errors.slice(0, 8).map((error, index) => (
-              <p key={`${error.row}-${index}`}>第 {error.row} 行：{error.message}</p>
+              <p key={`${error.row}-${index}`}>{dictionary.adminSchedule.rowPrefix} {error.row}：{error.message}</p>
             ))}
           </div>
         </Section>
@@ -285,10 +297,10 @@ function ScheduleImport({
       ) : null}
 
       {serverErrors.length ? (
-        <Section title="提交错误">
+        <Section title={dictionary.adminSchedule.submitErrors}>
           <div className="space-y-2 text-sm text-[#c1121f]">
             {serverErrors.slice(0, 8).map((error, index) => (
-              <p key={`${error.row}-${index}`}>第 {error.row} 行：{error.message}</p>
+              <p key={`${error.row}-${index}`}>{dictionary.adminSchedule.rowPrefix} {error.row}：{error.message}</p>
             ))}
           </div>
         </Section>
@@ -300,7 +312,7 @@ function ScheduleImport({
         onClick={() => void handleCommit()}
         className="w-full rounded-2xl bg-[#2d6a4f] py-4 font-semibold text-white shadow-sm disabled:bg-[#8a97a8]"
       >
-        {status === "submitting" ? "导入中..." : "确认导入"}
+        {status === "submitting" ? dictionary.adminSchedule.importing : dictionary.adminSchedule.commitImport}
       </button>
     </>
   );

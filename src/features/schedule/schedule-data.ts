@@ -1,5 +1,5 @@
+import type { SupportedLocale } from "@/lib/i18n";
 import type { Database } from "@/lib/database.types";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthenticatedAppContext } from "@/features/auth/app-context";
 
 type ShiftTemplateRow = Database["public"]["Tables"]["shift_templates"]["Row"];
@@ -15,6 +15,7 @@ export type SchedulePageData =
     }
   | {
       state: "ready";
+      locale: SupportedLocale;
       profile: ProfileRow;
       items: Array<{
         id: string;
@@ -28,12 +29,12 @@ export type SchedulePageData =
     };
 
 export async function getSchedulePageData(): Promise<SchedulePageData> {
-  const supabase = await createSupabaseServerClient();
   const context = await getAuthenticatedAppContext();
   if (context.state !== "ready") {
     return context;
   }
 
+  const supabase = context.adminClient;
   const profile = context.profile as ProfileRow;
 
   const start = new Date();
@@ -77,6 +78,7 @@ export async function getSchedulePageData(): Promise<SchedulePageData> {
 
   return {
     state: "ready",
+    locale: context.locale,
     profile,
     items: (schedules ?? []).map((item) => {
       const shift = item.shift_template_id ? shiftMap.get(item.shift_template_id) : undefined;

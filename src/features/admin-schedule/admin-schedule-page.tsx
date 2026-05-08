@@ -1,33 +1,37 @@
 import { MobileShell } from "@/components/layout/mobile-shell";
+import { getDictionary } from "@/lib/i18n";
 import { ErrorState, SignedOutState } from "@/features/auth/access-state";
 import { getAppViewer } from "@/features/auth/viewer";
 import { AdminScheduleView } from "./admin-schedule-view";
 
 export async function AdminSchedulePageView() {
   const viewer = await getAppViewer();
+  const locale = viewer.state === "ready" ? viewer.locale : "zh-CN";
+  const dictionary = getDictionary(locale);
 
   if (viewer.state === "signed_out") {
     return (
       <SignedOutState
         active="adminSchedule"
         redirectTo="/admin/schedule"
-        title="登录后进入排班管理"
-        description="管理端导入排班依赖真实 Supabase 登录态和角色权限。"
+        title={dictionary.adminSchedule.signedOutTitle}
+        description={dictionary.adminSchedule.signedOutDescription}
+        locale={locale}
       />
     );
   }
 
   if (viewer.state === "error") {
-    return <ErrorState active="adminSchedule" title="暂时无法进入排班管理" message={viewer.message} />;
+    return <ErrorState active="adminSchedule" title={dictionary.adminSchedule.loadErrorTitle} message={viewer.message} locale={locale} />;
   }
 
   if (!viewer.roles.includes("admin") && !viewer.roles.includes("hr")) {
-    return <ErrorState active="adminSchedule" title="当前账号没有导入权限" message="请在 Supabase 的 user_roles 表中为当前用户分配 admin 或 hr 角色后再试。" />;
+    return <ErrorState active="adminSchedule" title={dictionary.adminSchedule.noPermissionTitle} message={dictionary.adminSchedule.noPermissionDescription} locale={locale} />;
   }
 
   return (
-    <MobileShell active="adminSchedule">
-      <AdminScheduleView />
+    <MobileShell active="adminSchedule" locale={viewer.locale}>
+      <AdminScheduleView locale={viewer.locale} />
     </MobileShell>
   );
 }

@@ -1,17 +1,25 @@
+import { MobileShell } from "@/components/layout/mobile-shell";
+import { getDictionary } from "@/lib/i18n";
 import { ErrorState, SignedOutState } from "@/features/auth/access-state";
 import { getCheckinPageData } from "./checkin-service";
 import { CheckinView } from "./checkin-view";
 
 export async function CheckinPageView() {
   const data = await getCheckinPageData();
+  const locale = data.state === "ready" ? data.locale : "zh-CN";
+  const dictionary = getDictionary(locale);
 
   if (data.state === "signed_out") {
-    return <SignedOutState active="checkin" redirectTo="/checkin" title="登录后进入打卡" description="KOMO 打卡中心需要真实账号登录后使用。" />;
+    return <SignedOutState active="checkin" redirectTo="/checkin" title={dictionary.checkin.signedOutTitle} description={dictionary.checkin.signedOutDescription} locale={locale} />;
   }
 
   if (data.state === "error") {
-    return <ErrorState active="checkin" title="暂时无法加载打卡页面" message={data.message} />;
+    return <ErrorState active="checkin" title={dictionary.checkin.loadErrorTitle} message={data.message} locale={locale} />;
   }
 
-  return <CheckinView data={data} />;
+  return (
+    <MobileShell active="checkin" locale={data.locale}>
+      <CheckinView data={data} />
+    </MobileShell>
+  );
 }

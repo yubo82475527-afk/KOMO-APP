@@ -1,4 +1,7 @@
+import { cache } from "react";
 import type { Database } from "@/lib/database.types";
+import { defaultLocale, isSupportedLocale, type SupportedLocale } from "@/lib/i18n";
+import { getRequestLocale } from "@/lib/i18n-server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { findProfileForUser } from "./profile-resolution";
@@ -19,9 +22,10 @@ export type AuthenticatedAppContext =
       profile: ProfileRow;
       departmentName: string | null;
       roles: string[];
+      locale: SupportedLocale;
     };
 
-export async function getAuthenticatedAppContext(): Promise<AuthenticatedAppContext> {
+export const getAuthenticatedAppContext = cache(async (): Promise<AuthenticatedAppContext> => {
   const supabase = await createSupabaseServerClient();
   const adminClient = createSupabaseAdminClient();
 
@@ -47,17 +51,29 @@ export async function getAuthenticatedAppContext(): Promise<AuthenticatedAppCont
     return profileResult;
   }
 
-  const { data: profile, error: profileError } = await adminClient
+  let profileQuery = await adminClient
     .from("profiles")
-    .select("id, employee_no, full_name, email, department_id, manager_id, status, created_at")
+    .select("id, employee_no, full_name, email, department_id, manager_id, preferred_locale, status, created_at")
     .eq("id", profileResult.profile.id)
     .single<ProfileRow>();
+
+  if (isMissingPreferredLocaleColumn(profileQuery.error)) {
+    profileQuery = await adminClient
+      .from("profiles")
+      .select("id, employee_no, full_name, email, department_id, manager_id, status, created_at")
+      .eq("id", profileResult.profile.id)
+      .single<ProfileRow>();
+  }
+
+  const { data: profile, error: profileError } = profileQuery;
 
   if (profileError || !profile) {
     return { state: "error", message: profileError?.message ?? "当前账号没有关联员工档案。" };
   }
 
   const [departmentName, roles] = await Promise.all([getDepartmentName(adminClient, profile.department_id), getRoleCodes(adminClient, profile.id)]);
+  const requestLocale = await getRequestLocale();
+  const locale = isSupportedLocale(profile.preferred_locale) ? profile.preferred_locale : requestLocale ?? defaultLocale;
 
   return {
     state: "ready",
@@ -69,8 +85,9 @@ export async function getAuthenticatedAppContext(): Promise<AuthenticatedAppCont
     profile,
     departmentName,
     roles,
+    locale,
   };
-}
+});
 
 async function getDepartmentName(adminClient: AdminClient, departmentId: string | null) {
   if (!departmentId) return null;
@@ -94,4 +111,8 @@ async function getRoleCodes(adminClient: AdminClient, profileId: string) {
 
 function isMissingSessionError(error: { message?: string } | null) {
   return error?.message?.includes("Auth session missing") ?? false;
+}
+
+function isMissingPreferredLocaleColumn(error: { message?: string } | null) {
+  return error?.message?.includes("preferred_locale") ?? false;
 }

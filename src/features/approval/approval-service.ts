@@ -1,4 +1,5 @@
 import type { Database, Json } from "@/lib/database.types";
+import type { SupportedLocale } from "@/lib/i18n";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedAppContext } from "@/features/auth/app-context";
 import type {
@@ -31,6 +32,7 @@ type AuthContext =
       profile: ProfileRow;
       roles: string[];
       departmentName: string | null;
+      locale: SupportedLocale;
     };
 
 export async function getApprovalPageData(): Promise<ApprovalPageData> {
@@ -39,11 +41,16 @@ export async function getApprovalPageData(): Promise<ApprovalPageData> {
     return context;
   }
 
-  const [template, myRequests, pendingApprovals] = await Promise.all([
+  const [template, myRequestRows, pendingApprovalRows] = await Promise.all([
     getActiveLeaveTemplate(context.adminClient),
-    listApprovalRequestsByRequester(context.adminClient, context.profile.id),
-    listPendingApprovalsForUser(context.adminClient, context.profile.id),
+    listApprovalRequestRowsByRequester(context.adminClient, context.profile.id),
+    listPendingApprovalRequestRowsForUser(context.adminClient, context.profile.id),
   ]);
+
+  const allRequests = dedupeApprovalRequests([...myRequestRows, ...pendingApprovalRows]);
+  const approvalRequestContext = await loadApprovalRequestContext(context.adminClient, allRequests);
+  const myRequests = buildApprovalListItems(myRequestRows, approvalRequestContext);
+  const pendingApprovals = buildApprovalListItems(pendingApprovalRows, approvalRequestContext);
 
   return {
     state: "ready",
@@ -53,6 +60,7 @@ export async function getApprovalPageData(): Promise<ApprovalPageData> {
       departmentName: context.departmentName,
       roles: context.roles,
     },
+    locale: context.locale,
     myRequests,
     pendingApprovals,
     activeTemplateName: template?.name ?? null,
@@ -73,6 +81,7 @@ export async function getLeaveApplyPageData(): Promise<LeaveApplyPageData> {
       fullName: context.profile.full_name,
       departmentName: context.departmentName,
     },
+    locale: context.locale,
     activeTemplateName: template?.name ?? null,
   };
 }
@@ -107,6 +116,7 @@ export async function getApprovalDetailPageData(id: string): Promise<ApprovalDet
       fullName: context.profile.full_name,
       roles: context.roles,
     },
+    locale: context.locale,
     detail,
     canAct,
   };
@@ -420,10 +430,11 @@ async function getAuthContext(): Promise<AuthContext> {
     profile: context.profile,
     roles: context.roles,
     departmentName: context.departmentName,
+    locale: context.locale,
   };
 }
 
-async function listApprovalRequestsByRequester(adminClient: AdminClient, requesterId: string) {
+async function listApprovalRequestRowsByRequester(adminClient: AdminClient, requesterId: string) {
   const { data: requests, error } = await adminClient
     .from("approval_requests")
     .select("id, requester_id, type, title, payload, status, submitted_at, created_at")
@@ -434,10 +445,10 @@ async function listApprovalRequestsByRequester(adminClient: AdminClient, request
     return [];
   }
 
-  return buildApprovalListItems(adminClient, requests as ApprovalRequestRow[]);
+  return requests as ApprovalRequestRow[];
 }
 
-async function listPendingApprovalsForUser(adminClient: AdminClient, approverId: string) {
+async function listPendingApprovalRequestRowsForUser(adminClient: AdminClient, approverId: string) {
   const { data: pendingSteps, error: stepError } = await adminClient
     .from("approval_steps")
     .select("request_id")
@@ -463,23 +474,22 @@ async function listPendingApprovalsForUser(adminClient: AdminClient, approverId:
     return [];
   }
 
-  return buildApprovalListItems(adminClient, requests as ApprovalRequestRow[]);
+  return requests as ApprovalRequestRow[];
 }
 
-async function buildApprovalListItems(adminClient: AdminClient, requests: ApprovalRequestRow[]): Promise<ApprovalListItem[]> {
-  if (requests.length === 0) {
-    return [];
-  }
-
-  const requestIds = requests.map((request) => request.id);
-  const requesterIds = [...new Set(requests.map((request) => request.requester_id))];
-  const { steps, templateStepNameMap, profileNameMap } = await loadStepContext(adminClient, requestIds);
-  const requesterMap = await loadRequesterContext(adminClient, requesterIds);
-
+function buildApprovalListItems(
+  requests: ApprovalRequestRow[],
+  context: {
+    stepsByRequestId: Map<string, ApprovalStepRow[]>;
+    templateStepNameMap: Map<string, string>;
+    profileNameMap: Map<string, string>;
+    requesterMap: Map<string, { fullName: string; departmentName: string | null }>;
+  },
+): ApprovalListItem[] {
   return requests.map((request) => {
-    const requestSteps = steps.filter((step) => step.request_id === request.id).sort((left, right) => left.step_order - right.step_order);
+    const requestSteps = context.stepsByRequestId.get(request.id) ?? [];
     const activeStep = requestSteps.find((step) => step.status === "pending") ?? requestSteps.find((step) => step.status === "waiting") ?? null;
-    const requester = requesterMap.get(request.requester_id);
+    const requester = context.requesterMap.get(request.requester_id);
 
     return {
       id: request.id,
@@ -488,8 +498,8 @@ async function buildApprovalListItems(adminClient: AdminClient, requests: Approv
       submittedAt: request.submitted_at,
       requesterName: requester?.fullName ?? "未知员工",
       requesterDepartment: requester?.departmentName ?? null,
-      currentStepName: activeStep ? templateStepNameMap.get(activeStep.template_step_id ?? "") ?? `第 ${activeStep.step_order} 级审批` : null,
-      currentApproverName: activeStep?.approver_id ? profileNameMap.get(activeStep.approver_id) ?? null : null,
+      currentStepName: activeStep ? context.templateStepNameMap.get(activeStep.template_step_id ?? "") ?? `第 ${activeStep.step_order} 级审批` : null,
+      currentApproverName: activeStep?.approver_id ? context.profileNameMap.get(activeStep.approver_id) ?? null : null,
       payload: parseLeavePayload(request.payload),
     };
   });
@@ -564,6 +574,50 @@ async function loadStepContext(adminClient: AdminClient, requestIds: string[]) {
   }
 
   return { steps: typedSteps, templateStepNameMap, profileNameMap };
+}
+
+async function loadApprovalRequestContext(adminClient: AdminClient, requests: ApprovalRequestRow[]) {
+  if (requests.length === 0) {
+    return {
+      stepsByRequestId: new Map<string, ApprovalStepRow[]>(),
+      templateStepNameMap: new Map<string, string>(),
+      profileNameMap: new Map<string, string>(),
+      requesterMap: new Map<string, { fullName: string; departmentName: string | null }>(),
+    };
+  }
+
+  const requestIds = requests.map((request) => request.id);
+  const requesterIds = [...new Set(requests.map((request) => request.requester_id))];
+  const [{ steps, templateStepNameMap, profileNameMap }, requesterMap] = await Promise.all([
+    loadStepContext(adminClient, requestIds),
+    loadRequesterContext(adminClient, requesterIds),
+  ]);
+
+  const stepsByRequestId = new Map<string, ApprovalStepRow[]>();
+  for (const step of steps) {
+    const current = stepsByRequestId.get(step.request_id) ?? [];
+    current.push(step);
+    stepsByRequestId.set(step.request_id, current);
+  }
+
+  return {
+    stepsByRequestId,
+    templateStepNameMap,
+    profileNameMap,
+    requesterMap,
+  };
+}
+
+function dedupeApprovalRequests(requests: ApprovalRequestRow[]) {
+  const seen = new Set<string>();
+  return requests.filter((request) => {
+    if (seen.has(request.id)) {
+      return false;
+    }
+
+    seen.add(request.id);
+    return true;
+  });
 }
 
 async function loadRequesterContext(adminClient: AdminClient, requesterIds: string[]) {

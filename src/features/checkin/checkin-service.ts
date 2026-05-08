@@ -1,3 +1,4 @@
+import type { SupportedLocale } from "@/lib/i18n";
 import type { Database } from "@/lib/database.types";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedAppContext } from "@/features/auth/app-context";
@@ -16,6 +17,7 @@ export type CheckinPageData =
         departmentName: string | null;
         employeeNo: string | null;
       };
+      locale: SupportedLocale;
       today: {
         firstIn: AttendanceRecordRow | null;
         lastOut: AttendanceRecordRow | null;
@@ -39,6 +41,7 @@ export async function getCheckinPageData(): Promise<CheckinPageData> {
       departmentName: context.departmentName,
       employeeNo: context.profile.employee_no,
     },
+    locale: context.locale,
     today: todayRecords,
   };
 }
@@ -104,6 +107,7 @@ async function getCheckinContext(): Promise<
       adminClient: ReturnType<typeof createSupabaseAdminClient>;
       profile: ProfileRow;
       departmentName: string | null;
+      locale: SupportedLocale;
     }
 > {
   const context = await getAuthenticatedAppContext();
@@ -116,6 +120,7 @@ async function getCheckinContext(): Promise<
     adminClient: context.adminClient,
     profile: context.profile,
     departmentName: context.departmentName,
+    locale: context.locale,
   };
 }
 
