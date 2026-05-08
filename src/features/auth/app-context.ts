@@ -110,7 +110,12 @@ async function getRoleCodes(adminClient: AdminClient, profileId: string) {
 }
 
 function isMissingSessionError(error: { message?: string } | null) {
-  return error?.message?.includes("Auth session missing") ?? false;
+  const message = error?.message ?? "";
+  return (
+    message.includes("Auth session missing") ||
+    message.includes("Invalid Refresh Token") ||
+    message.includes("Refresh Token Not Found")
+  );
 }
 
 function isMissingPreferredLocaleColumn(error: { message?: string } | null) {
