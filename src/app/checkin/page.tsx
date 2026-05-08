@@ -1,10 +1,5 @@
-import { MobileShell } from "@/components/layout/mobile-shell";
-import { CheckinView } from "@/features/checkin/checkin-view";
+import { CheckinPageView } from "@/features/checkin/checkin-page";
 
 export default function CheckinPage() {
-  return (
-    <MobileShell active="checkin">
-      <CheckinView />
-    </MobileShell>
-  );
+  return <CheckinPageView />;
 }

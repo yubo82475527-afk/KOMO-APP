@@ -1,7 +1,6 @@
 import type { Database } from "@/lib/database.types";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { findProfileForUser } from "@/features/auth/profile-resolution";
+import { getAuthenticatedAppContext } from "@/features/auth/app-context";
 
 type ShiftTemplateRow = Database["public"]["Tables"]["shift_templates"]["Row"];
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
@@ -30,30 +29,12 @@ export type SchedulePageData =
 
 export async function getSchedulePageData(): Promise<SchedulePageData> {
   const supabase = await createSupabaseServerClient();
-  const adminClient = createSupabaseAdminClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (isMissingSessionError(userError)) {
-    return { state: "signed_out" };
+  const context = await getAuthenticatedAppContext();
+  if (context.state !== "ready") {
+    return context;
   }
 
-  if (userError) {
-    return { state: "error", message: userError.message };
-  }
-
-  if (!user) {
-    return { state: "signed_out" };
-  }
-
-  const profileResult = await findProfileForUser(adminClient, user.id, user.email ?? null);
-  if (profileResult.state === "error") {
-    return profileResult;
-  }
-
-  const profile = profileResult.profile as ProfileRow;
+  const profile = context.profile as ProfileRow;
 
   const start = new Date();
   start.setDate(1);
@@ -110,8 +91,4 @@ export async function getSchedulePageData(): Promise<SchedulePageData> {
       };
     }),
   };
-}
-
-function isMissingSessionError(error: { message?: string } | null) {
-  return error?.message?.includes("Auth session missing") ?? false;
 }

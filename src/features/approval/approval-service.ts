@@ -1,7 +1,6 @@
 import type { Database, Json } from "@/lib/database.types";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { findProfileForUser } from "@/features/auth/profile-resolution";
+import { getAuthenticatedAppContext } from "@/features/auth/app-context";
 import type {
   ApprovalDetailPageData,
   ApprovalDetailRecord,
@@ -40,9 +39,11 @@ export async function getApprovalPageData(): Promise<ApprovalPageData> {
     return context;
   }
 
-  const template = await getActiveLeaveTemplate(context.adminClient);
-  const myRequests = await listApprovalRequestsByRequester(context.adminClient, context.profile.id);
-  const pendingApprovals = await listPendingApprovalsForUser(context.adminClient, context.profile.id);
+  const [template, myRequests, pendingApprovals] = await Promise.all([
+    getActiveLeaveTemplate(context.adminClient),
+    listApprovalRequestsByRequester(context.adminClient, context.profile.id),
+    listPendingApprovalsForUser(context.adminClient, context.profile.id),
+  ]);
 
   return {
     state: "ready",
@@ -87,10 +88,13 @@ export async function getApprovalDetailPageData(id: string): Promise<ApprovalDet
     return { state: "not_found" };
   }
 
+  const [canAct, isAssignedApprover] = await Promise.all([
+    hasPendingStep(context.adminClient, id, context.profile.id),
+    isApproverForRequest(context.adminClient, id, context.profile.id),
+  ]);
+
   const isRequester = detail.requesterId === context.profile.id;
-  const canAct = detail.steps.some((step) => step.approverName && step.status === "pending") && (await hasPendingStep(context.adminClient, id, context.profile.id));
   const isAdminLike = context.roles.includes("admin") || context.roles.includes("hr");
-  const isAssignedApprover = await isApproverForRequest(context.adminClient, id, context.profile.id);
 
   if (!isRequester && !isAssignedApprover && !isAdminLike) {
     return { state: "error", message: "你没有查看这条审批的权限。" };
@@ -118,8 +122,7 @@ export async function getApprovalTemplateAdminData(): Promise<ApprovalTemplateAd
     return { state: "forbidden", message: "当前账号没有审批模板管理权限。" };
   }
 
-  const template = await getActiveLeaveTemplate(context.adminClient);
-  const userOptions = await listApprovalUserOptions(context.adminClient);
+  const [template, userOptions] = await Promise.all([getActiveLeaveTemplate(context.adminClient), listApprovalUserOptions(context.adminClient)]);
 
   return {
     state: "ready",
@@ -405,50 +408,18 @@ export async function saveApprovalTemplate(input: ApprovalTemplateForm) {
 }
 
 async function getAuthContext(): Promise<AuthContext> {
-  const supabase = await createSupabaseServerClient();
-  const adminClient = createSupabaseAdminClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (isMissingSessionError(userError)) {
-    return { state: "signed_out" };
+  const context = await getAuthenticatedAppContext();
+  if (context.state !== "ready") {
+    return context;
   }
-
-  if (userError) {
-    return { state: "error", message: userError.message };
-  }
-
-  if (!user) {
-    return { state: "signed_out" };
-  }
-
-  const profileResult = await findProfileForUser(adminClient, user.id, user.email ?? null);
-  if (profileResult.state === "error") {
-    return profileResult;
-  }
-
-  const { data: profileRow, error: profileRowError } = await adminClient
-    .from("profiles")
-    .select("id, employee_no, full_name, email, department_id, manager_id, status, created_at")
-    .eq("id", profileResult.profile.id)
-    .single<ProfileRow>();
-
-  if (profileRowError || !profileRow) {
-    return { state: "error", message: profileRowError?.message ?? "员工档案不存在。" };
-  }
-
-  const roles = await getRoleCodes(adminClient, profileRow.id);
-  const departmentName = profileRow.department_id ? await getDepartmentName(adminClient, profileRow.department_id) : null;
 
   return {
     state: "ready",
-    adminClient,
-    userId: user.id,
-    profile: profileRow,
-    roles,
-    departmentName,
+    adminClient: context.adminClient,
+    userId: context.user.id,
+    profile: context.profile,
+    roles: context.roles,
+    departmentName: context.departmentName,
   };
 }
 
@@ -601,10 +572,7 @@ async function loadRequesterContext(adminClient: AdminClient, requesterIds: stri
     return result;
   }
 
-  const { data: profiles } = await adminClient
-    .from("profiles")
-    .select("id, full_name, department_id")
-    .in("id", requesterIds);
+  const { data: profiles } = await adminClient.from("profiles").select("id, full_name, department_id").in("id", requesterIds);
 
   const departmentIds = [...new Set((profiles ?? []).map((profile) => profile.department_id).filter(Boolean))];
   const departmentMap = new Map<string, string>();
@@ -746,25 +714,6 @@ async function getActiveProfileById(adminClient: AdminClient, id: string) {
   return data ?? null;
 }
 
-async function getRoleCodes(adminClient: AdminClient, profileId: string) {
-  const { data } = await adminClient.from("user_roles").select("roles!inner(code)").eq("profile_id", profileId);
-  return (
-    data?.flatMap((row) => {
-      const role = (row as { roles?: { code?: string } | Array<{ code?: string }> }).roles;
-      return Array.isArray(role)
-        ? role.map((item) => item.code).filter((code): code is string => Boolean(code))
-        : role?.code
-          ? [role.code]
-          : [];
-    }) ?? []
-  );
-}
-
-async function getDepartmentName(adminClient: AdminClient, departmentId: string) {
-  const { data } = await adminClient.from("departments").select("name").eq("id", departmentId).maybeSingle();
-  return data?.name ?? null;
-}
-
 async function getDepartmentHeadId(adminClient: AdminClient, departmentId: string) {
   const { data } = await adminClient.from("departments").select("head_id").eq("id", departmentId).maybeSingle();
   return data?.head_id ?? null;
@@ -808,8 +757,4 @@ function validateLeavePayload(input: { leaveType: string; startDate: string; end
   if (!Number.isFinite(input.days) || input.days <= 0) return "请假天数必须大于 0。";
   if (!input.reason.trim()) return "请假原因不能为空。";
   return null;
-}
-
-function isMissingSessionError(error: { message?: string } | null) {
-  return error?.message?.includes("Auth session missing") ?? false;
 }
