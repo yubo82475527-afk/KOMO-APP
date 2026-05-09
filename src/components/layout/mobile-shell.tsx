@@ -4,6 +4,8 @@ import { AppLink } from "@/components/ui/app-link";
 import { cx } from "@/components/ui/class-name";
 import type { MainView } from "@/features/shared/types";
 import { getDictionary, type SupportedLocale } from "@/lib/i18n";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 type MobileShellProps = {
   active: MainView;
@@ -11,7 +13,17 @@ type MobileShellProps = {
   children: React.ReactNode;
 };
 
+type NavItem = {
+  key: MainView;
+  label: string;
+  href: string;
+};
+
+const shellPrefetchedRoutes = new Set<string>();
+const shellPrefetchRoutes = ["/", "/approval", "/schedule", "/checkin", "/profile", "/admin/schedule"];
+
 export function MobileShell({ active, locale = "zh-CN", children }: MobileShellProps) {
+  const router = useRouter();
   const dictionary = getDictionary(locale);
   const titles: Record<MainView, string> = {
     home: dictionary.nav.home,
@@ -23,7 +35,7 @@ export function MobileShell({ active, locale = "zh-CN", children }: MobileShellP
     adminApproval: dictionary.nav.adminApproval,
   };
 
-  const navItems: Array<{ key: MainView; label: string; href: string }> = [
+  const navItems: NavItem[] = [
     { key: "home", label: dictionary.nav.home, href: "/" },
     { key: "approval", label: dictionary.nav.approval, href: "/approval" },
     { key: "schedule", label: dictionary.nav.schedule, href: "/schedule" },
@@ -31,55 +43,82 @@ export function MobileShell({ active, locale = "zh-CN", children }: MobileShellP
     { key: "profile", label: dictionary.nav.profile, href: "/profile" },
   ];
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      shellPrefetchRoutes.forEach((href) => {
+        if (shellPrefetchedRoutes.has(href)) return;
+        shellPrefetchedRoutes.add(href);
+        router.prefetch(href);
+      });
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [router]);
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff6ec_0,_#f5efe7_34%,_#efe7dc_100%)] px-3 py-4 text-[#17202f]">
-      <div className="relative mx-auto flex min-h-[calc(100dvh-2rem)] max-w-[430px] flex-col overflow-hidden rounded-[30px] border border-[#dccfbe] bg-[#fcfaf7] shadow-[0_18px_60px_rgba(82,58,36,0.16)]">
-        <header className="sticky top-0 z-20 border-b border-[#eadfce] bg-[#fcfaf7]/95 px-5 py-4 backdrop-blur">
+    <div className="h-dvh overflow-hidden bg-[radial-gradient(circle_at_top,_#fff8ef_0,_#f6efe6_38%,_#ebe2d6_100%)] px-3 py-3 text-[#17202f]">
+      <div className="relative mx-auto flex h-[calc(100dvh-1.5rem)] max-w-[430px] flex-col overflow-hidden rounded-[34px] border border-white/65 bg-[#fcfaf7] shadow-[0_20px_70px_rgba(82,58,36,0.18)] ring-1 ring-[#d8cab7]/70">
+        <header className="sticky top-0 z-20 border-b border-[#ecdfcf] bg-[linear-gradient(180deg,rgba(255,253,249,0.98)_0%,rgba(252,250,247,0.92)_100%)] px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur-xl">
+          <div className="mb-3 flex items-center justify-center">
+            <span className="h-1.5 w-14 rounded-full bg-[#d8c8b4]" />
+          </div>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#9a6b3d]">KOMO</p>
-              <h1 className="text-xl font-semibold text-[#17202f]">{titles[active]}</h1>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#a87847]">KOMO WORKSPACE</p>
+              <h1 className="mt-1 text-[1.35rem] font-semibold tracking-[-0.02em] text-[#17202f]">{titles[active]}</h1>
             </div>
             {active === "adminSchedule" || active === "adminApproval" ? (
-              <AppLink href="/" className="rounded-full bg-[#f0e5d7] px-3 py-2 text-xs font-medium text-[#8a5a2f]" pendingClassName="opacity-70">
+              <AppLink
+                href="/"
+                className="inline-flex min-h-11 items-center rounded-full border border-[#e5d7c4] bg-white/85 px-3.5 py-2 text-xs font-medium text-[#8a5a2f] shadow-[0_6px_18px_rgba(82,58,36,0.08)] transition"
+                pendingClassName="scale-[0.98] opacity-70"
+              >
                 {dictionary.common.backToWorkspace}
               </AppLink>
             ) : (
-              <AppLink href="/admin/schedule" className="rounded-full bg-[#f0e5d7] px-3 py-2 text-xs font-medium text-[#8a5a2f]" pendingClassName="opacity-70">
+              <AppLink
+                href="/admin/schedule"
+                className="inline-flex min-h-11 items-center rounded-full border border-[#e5d7c4] bg-white/85 px-3.5 py-2 text-xs font-medium text-[#8a5a2f] shadow-[0_6px_18px_rgba(82,58,36,0.08)] transition"
+                pendingClassName="scale-[0.98] opacity-70"
+              >
                 {dictionary.common.adminPortal}
               </AppLink>
             )}
           </div>
         </header>
 
-        <main className="flex-1 space-y-4 overflow-y-auto px-4 pb-24 pt-4">{children}</main>
+        <main className="flex-1 space-y-4 overflow-y-auto px-4 pb-32 pt-4 [scrollbar-gutter:stable]">{children}</main>
         {active !== "adminSchedule" && active !== "adminApproval" && <BottomNav active={active} navItems={navItems} />}
       </div>
     </div>
   );
 }
 
-function BottomNav({ active, navItems }: { active: MainView; navItems: Array<{ key: MainView; label: string; href: string }> }) {
+function BottomNav({ active, navItems }: { active: MainView; navItems: NavItem[] }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pb-4">
-      <nav className="pointer-events-auto grid grid-cols-5 rounded-3xl border border-[#eadfce] bg-[#fffdf9] px-2 py-2 shadow-[0_10px_32px_rgba(82,58,36,0.14)]">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-[#fcfaf7] via-[#fcfaf7]/97 to-transparent px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-6">
+      <div className="rounded-[32px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.88)_0%,rgba(248,243,236,0.96)_100%)] p-2 shadow-[0_18px_42px_rgba(82,58,36,0.16)] backdrop-blur-2xl">
+        <nav className="pointer-events-auto grid grid-cols-5 gap-1">
         {navItems.map((item) => (
           <AppLink
             key={item.key}
             href={item.href}
             className={cx(
-              "rounded-2xl px-1 py-2 text-center text-xs font-medium transition",
-              active === item.key ? "bg-[#8a5a2f] text-white" : "text-[#7b6c5c]",
+              "group rounded-[22px] px-1 py-3 text-center transition duration-200",
+              active === item.key ? "bg-[#f7ecdf] text-[#8a5a2f]" : "text-[#7b6c5c]",
             )}
-            activeClassName="bg-[#8a5a2f] text-white"
-            pendingClassName="bg-[#f0e5d7] text-[#8a5a2f]"
+            activeClassName="bg-[#f7ecdf] text-[#8a5a2f]"
+            pendingClassName="scale-[0.98] bg-[#f3e6d7] text-[#8a5a2f]"
             exact={item.href === "/"}
           >
-            <span className="block text-lg leading-5">{item.label.slice(0, 1)}</span>
-            {item.label}
+            <span className={cx("block text-[12px] font-medium leading-5", active === item.key ? "text-[#8a5a2f]" : "text-[#7b6c5c]")}>{item.label}</span>
           </AppLink>
         ))}
-      </nav>
+        </nav>
+        <div className="pointer-events-none mt-2 flex justify-center">
+          <span className="h-1.5 w-28 rounded-full bg-[#1b2430]/14" />
+        </div>
+      </div>
     </div>
   );
 }

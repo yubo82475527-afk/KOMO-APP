@@ -1,9 +1,10 @@
 import { MobileShell } from "@/components/layout/mobile-shell";
 import type { MainView } from "@/features/shared/types";
+import type { SupportedLocale } from "@/lib/i18n";
 
-export function PageShellSkeleton({ active }: { active: MainView }) {
+export function PageShellSkeleton({ active, locale = "zh-CN" }: { active: MainView; locale?: SupportedLocale }) {
   return (
-    <MobileShell active={active}>
+    <MobileShell active={active} locale={locale}>
       <div className="space-y-4 animate-pulse">
         <div className="rounded-3xl bg-white p-5 shadow-sm">
           <div className="h-4 w-24 rounded-full bg-[#eadfce]" />

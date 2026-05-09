@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSupportedLocale } from "@/lib/i18n";
+import { LOCALE_COOKIE_NAME } from "@/lib/locale-cookie";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedAppContext } from "@/features/auth/app-context";
 
@@ -27,5 +28,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ preferredLocale });
+  const response = NextResponse.json({ preferredLocale });
+  if (preferredLocale) {
+    response.cookies.set(LOCALE_COOKIE_NAME, preferredLocale, {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  } else {
+    response.cookies.delete(LOCALE_COOKIE_NAME);
+  }
+
+  return response;
 }

@@ -1,5 +1,6 @@
+import { getRequestLocale } from "@/lib/i18n-server";
 import { PageShellSkeleton } from "@/components/ui/page-shell-skeleton";
 
-export default function Loading() {
-  return <PageShellSkeleton active="schedule" />;
+export default async function Loading() {
+  return <PageShellSkeleton active="schedule" locale={await getRequestLocale()} />;
 }

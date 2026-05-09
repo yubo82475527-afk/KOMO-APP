@@ -51,26 +51,7 @@ export const getAuthenticatedAppContext = cache(async (): Promise<AuthenticatedA
     return profileResult;
   }
 
-  let profileQuery = await adminClient
-    .from("profiles")
-    .select("id, employee_no, full_name, email, department_id, manager_id, preferred_locale, status, created_at")
-    .eq("id", profileResult.profile.id)
-    .single<ProfileRow>();
-
-  if (isMissingPreferredLocaleColumn(profileQuery.error)) {
-    profileQuery = await adminClient
-      .from("profiles")
-      .select("id, employee_no, full_name, email, department_id, manager_id, status, created_at")
-      .eq("id", profileResult.profile.id)
-      .single<ProfileRow>();
-  }
-
-  const { data: profile, error: profileError } = profileQuery;
-
-  if (profileError || !profile) {
-    return { state: "error", message: profileError?.message ?? "当前账号没有关联员工档案。" };
-  }
-
+  const profile = profileResult.profile;
   const [departmentName, roles] = await Promise.all([getDepartmentName(adminClient, profile.department_id), getRoleCodes(adminClient, profile.id)]);
   const requestLocale = await getRequestLocale();
   const locale = isSupportedLocale(profile.preferred_locale) ? profile.preferred_locale : requestLocale ?? defaultLocale;
@@ -116,8 +97,4 @@ function isMissingSessionError(error: { message?: string } | null) {
     message.includes("Invalid Refresh Token") ||
     message.includes("Refresh Token Not Found")
   );
-}
-
-function isMissingPreferredLocaleColumn(error: { message?: string } | null) {
-  return error?.message?.includes("preferred_locale") ?? false;
 }

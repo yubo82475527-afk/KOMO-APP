@@ -2,6 +2,7 @@ import type { Database, Json } from "@/lib/database.types";
 import type { SupportedLocale } from "@/lib/i18n";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedAppContext } from "@/features/auth/app-context";
+import { revalidateTag, unstable_cache } from "next/cache";
 import type {
   ApprovalDetailPageData,
   ApprovalDetailRecord,
@@ -22,6 +23,8 @@ type ApprovalStepRow = Database["public"]["Tables"]["approval_steps"]["Row"];
 type ApprovalTemplateRow = Database["public"]["Tables"]["approval_templates"]["Row"];
 type ApprovalTemplateStepRow = Database["public"]["Tables"]["approval_template_steps"]["Row"];
 
+const activeLeaveTemplateNameCacheTag = "approval:active-leave-template-name";
+
 type AuthContext =
   | { state: "signed_out" }
   | { state: "error"; message: string }
@@ -41,8 +44,8 @@ export async function getApprovalPageData(): Promise<ApprovalPageData> {
     return context;
   }
 
-  const [template, myRequestRows, pendingApprovalRows] = await Promise.all([
-    getActiveLeaveTemplate(context.adminClient),
+  const [activeTemplateName, myRequestRows, pendingApprovalRows] = await Promise.all([
+    getActiveLeaveTemplateName(),
     listApprovalRequestRowsByRequester(context.adminClient, context.profile.id),
     listPendingApprovalRequestRowsForUser(context.adminClient, context.profile.id),
   ]);
@@ -63,7 +66,7 @@ export async function getApprovalPageData(): Promise<ApprovalPageData> {
     locale: context.locale,
     myRequests,
     pendingApprovals,
-    activeTemplateName: template?.name ?? null,
+    activeTemplateName,
   };
 }
 
@@ -73,7 +76,7 @@ export async function getLeaveApplyPageData(): Promise<LeaveApplyPageData> {
     return context;
   }
 
-  const template = await getActiveLeaveTemplate(context.adminClient);
+  const activeTemplateName = await getActiveLeaveTemplateName();
   return {
     state: "ready",
     viewer: {
@@ -82,7 +85,7 @@ export async function getLeaveApplyPageData(): Promise<LeaveApplyPageData> {
       departmentName: context.departmentName,
     },
     locale: context.locale,
-    activeTemplateName: template?.name ?? null,
+    activeTemplateName,
   };
 }
 
@@ -414,6 +417,7 @@ export async function saveApprovalTemplate(input: ApprovalTemplateForm) {
     return { state: "error" as const, message: stepsError.message };
   }
 
+  revalidateTag(activeLeaveTemplateNameCacheTag, { expire: 0 });
   return { state: "success" as const, templateId: templateId! };
 }
 
@@ -670,6 +674,24 @@ async function listApprovalUserOptions(adminClient: AdminClient): Promise<Approv
     employeeNo: profile.employee_no,
   }));
 }
+
+const getActiveLeaveTemplateName = unstable_cache(
+  async () => {
+    const adminClient = createSupabaseAdminClient();
+    const { data: template } = await adminClient
+      .from("approval_templates")
+      .select("name")
+      .eq("request_type", "leave")
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ name: string }>();
+
+    return template?.name ?? null;
+  },
+  ["approval-active-leave-template-name"],
+  { revalidate: 60, tags: [activeLeaveTemplateNameCacheTag] },
+);
 
 async function getActiveLeaveTemplate(adminClient: AdminClient) {
   const { data: template } = await adminClient

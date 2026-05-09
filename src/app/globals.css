@@ -18,6 +18,7 @@
 
 html {
   background: #efe7dc;
+  height: 100%;
 }
 
 body {
@@ -27,4 +28,14 @@ body {
   color: var(--foreground);
   min-height: 100vh;
   font-family: var(--font-sans);
+  height: 100%;
+  overflow: hidden;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
 }
