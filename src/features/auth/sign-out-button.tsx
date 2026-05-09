@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { getDictionary, type SupportedLocale } from "@/lib/i18n";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -29,14 +30,13 @@ export function SignOutButton({ redirectTo = "/", locale = "zh-CN" }: { redirect
 
   return (
     <>
-      <button
-        type="button"
-        disabled={isSubmitting}
+      <AsyncActionButton
+        idleLabel={dictionary.auth.signOut}
+        pendingLabel={dictionary.auth.signingOut}
+        isPending={isSubmitting}
         onClick={() => void handleSignOut()}
         className="w-full rounded-2xl bg-white py-4 font-semibold text-[#c1121f] shadow-sm disabled:text-[#8a97a8]"
-      >
-        {isSubmitting ? dictionary.auth.signingOut : dictionary.auth.signOut}
-      </button>
+      />
       {error ? <p className="mt-3 text-center text-sm text-[#c1121f]">{error}</p> : null}
     </>
   );

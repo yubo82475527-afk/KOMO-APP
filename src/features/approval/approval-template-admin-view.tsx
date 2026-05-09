@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { MobileShell } from "@/components/layout/mobile-shell";
 import { cx } from "@/components/ui/class-name";
 import { Section } from "@/components/ui/section";
@@ -87,7 +88,7 @@ export function ApprovalTemplateAdminView({
             <span className="text-sm text-[#607089]">模板名称</span>
             <input value={template.name} onChange={(event) => setTemplate({ ...template, name: event.target.value })} className="mt-2 w-full rounded-xl border border-[#d9dee8] px-3 py-3 text-sm" />
           </label>
-          <div className="rounded-xl bg-[#eef7f0] p-3 text-sm text-[#2d6a4f]">当前模板只影响新提交的请假申请，已在流转中的审批不会被回写。</div>
+          <div className="rounded-xl bg-[#eef7f0] p-3 text-sm text-[#2d6a4f]">当前模板只影响新提交的请假申请，已经在流转中的审批不会被回写。</div>
         </div>
       </Section>
 
@@ -122,8 +123,8 @@ export function ApprovalTemplateAdminView({
                   {data.userOptions.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.fullName}
-                      {user.departmentName ? ` · ${user.departmentName}` : ""}
-                      {user.employeeNo ? ` · ${user.employeeNo}` : ""}
+                      {user.departmentName ? ` 路 ${user.departmentName}` : ""}
+                      {user.employeeNo ? ` 路 ${user.employeeNo}` : ""}
                     </option>
                   ))}
                 </select>
@@ -138,9 +139,13 @@ export function ApprovalTemplateAdminView({
 
       {message ? <div className={cx("rounded-2xl p-4 text-center text-sm", status === "success" ? "bg-[#eef7f0] text-[#2d6a4f]" : "bg-[#fff5f5] text-[#c1121f]")}>{message}</div> : null}
 
-      <button type="button" disabled={status === "saving"} onClick={() => void save()} className="w-full rounded-2xl bg-[#184e77] py-4 font-semibold text-white shadow-sm disabled:bg-[#8a97a8]">
-        {status === "saving" ? "保存中..." : "保存模板"}
-      </button>
+      <AsyncActionButton
+        idleLabel="保存模板"
+        pendingLabel="保存中..."
+        isPending={status === "saving"}
+        onClick={() => void save()}
+        className="w-full rounded-2xl bg-[#184e77] py-4 font-semibold text-white shadow-sm disabled:bg-[#8a97a8]"
+      />
     </MobileShell>
   );
 }

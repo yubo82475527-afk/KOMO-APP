@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatMessage, getDictionary, type SupportedLocale } from "@/lib/i18n";
+import { AppLink } from "@/components/ui/app-link";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { cx } from "@/components/ui/class-name";
 import { Section } from "@/components/ui/section";
 import { TabButton } from "@/components/ui/tab-button";
@@ -15,7 +16,7 @@ type ImportStatus = "idle" | "previewed" | "submitting" | "success" | "error";
 export function AdminScheduleView({ locale }: { locale: SupportedLocale }) {
   const dictionary = getDictionary(locale);
   const [mode, setMode] = useState<AdminScheduleMode>("list");
-  const [duplicateMode, setDuplicateMode] = useState<"覆盖" | "跳过">("覆盖");
+  const [duplicateMode, setDuplicateMode] = useState<"overwrite" | "skip">("overwrite");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [status, setStatus] = useState<ImportStatus>("idle");
   const [serverMessage, setServerMessage] = useState("");
@@ -24,12 +25,17 @@ export function AdminScheduleView({ locale }: { locale: SupportedLocale }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <Link href="/admin/schedule" className="rounded-xl bg-[#184e77] px-3 py-3 text-center text-sm font-medium text-white">
+        <AppLink
+          href="/admin/schedule"
+          className="rounded-xl bg-[#184e77] px-3 py-3 text-center text-sm font-medium text-white"
+          activeClassName="rounded-xl bg-[#184e77] px-3 py-3 text-center text-sm font-medium text-white"
+          pendingClassName="opacity-80"
+        >
           {dictionary.adminSchedule.pageTitle}
-        </Link>
-        <Link href="/admin/approval" className="rounded-xl bg-white px-3 py-3 text-center text-sm font-medium text-[#184e77]">
+        </AppLink>
+        <AppLink href="/admin/approval" className="rounded-xl bg-white px-3 py-3 text-center text-sm font-medium text-[#184e77]" pendingClassName="bg-[#f6f8fb]">
           {dictionary.adminSchedule.approvalConfig}
-        </Link>
+        </AppLink>
       </div>
 
       <div className="flex gap-2">
@@ -64,12 +70,13 @@ export function AdminScheduleView({ locale }: { locale: SupportedLocale }) {
 
 function ScheduleList({ locale }: { locale: SupportedLocale }) {
   const dictionary = getDictionary(locale);
+  const filters = locale === "en" ? ["Customer Service", "This Week", "All Shifts"] : ["客服部", "本周", "全部班次"];
 
   return (
     <>
       <Section title={dictionary.adminSchedule.filters}>
         <div className="grid grid-cols-3 gap-2">
-          {["客服部", "本周", "全部班次"].map((item) => (
+          {filters.map((item) => (
             <button key={item} type="button" className="rounded-xl bg-[#eef2f6] px-2 py-3 text-sm">
               {item}
             </button>
@@ -122,8 +129,8 @@ function ScheduleImport({
   locale: SupportedLocale;
   preview: ImportPreview | null;
   setPreview: (value: ImportPreview | null) => void;
-  duplicateMode: "覆盖" | "跳过";
-  onDuplicateModeChange: (value: "覆盖" | "跳过") => void;
+  duplicateMode: "overwrite" | "skip";
+  onDuplicateModeChange: (value: "overwrite" | "skip") => void;
   status: ImportStatus;
   setStatus: (value: ImportStatus) => void;
   serverMessage: string;
@@ -133,6 +140,7 @@ function ScheduleImport({
 }) {
   const dictionary = getDictionary(locale);
   const previewRows = useMemo(() => preview?.rows.slice(0, 8) ?? [], [preview]);
+  const previewHeaders = locale === "en" ? ["Employee No.", "Name", "Department", "Date", "Shift"] : ["工号", "姓名", "部门", "日期", "班次"];
 
   async function handleFileChange(file: File | null) {
     setServerMessage("");
@@ -178,7 +186,7 @@ function ScheduleImport({
       body: JSON.stringify({
         fileName: preview.fileName,
         targetMonth: preview.targetMonth,
-        duplicateMode: duplicateMode === "跳过" ? "skip" : "overwrite",
+        duplicateMode,
         rows: preview.rows,
       }),
     });
@@ -230,17 +238,19 @@ function ScheduleImport({
       </Section>
 
       <Section title={dictionary.adminSchedule.filePreview}>
-        <p className="text-sm text-[#607089]">{dictionary.adminSchedule.fileName}：{preview?.fileName ?? dictionary.adminSchedule.noFileSelected}</p>
-        <p className="mt-1 text-sm text-[#607089]">{dictionary.adminSchedule.targetMonth}：{preview?.targetMonth ? preview.targetMonth.slice(0, 7) : dictionary.adminSchedule.monthUnknown}</p>
+        <p className="text-sm text-[#607089]">
+          {dictionary.adminSchedule.fileName}: {preview?.fileName ?? dictionary.adminSchedule.noFileSelected}
+        </p>
+        <p className="mt-1 text-sm text-[#607089]">
+          {dictionary.adminSchedule.targetMonth}: {preview?.targetMonth ? preview.targetMonth.slice(0, 7) : dictionary.adminSchedule.monthUnknown}
+        </p>
 
         {previewRows.length > 0 && (
           <div className="mt-3 overflow-hidden rounded-xl border border-[#d9dee8] text-xs">
             <div className="grid grid-cols-5 bg-[#eef2f6] p-2 font-medium">
-              <span>工号</span>
-              <span>姓名</span>
-              <span>部门</span>
-              <span>日期</span>
-              <span>班次</span>
+              {previewHeaders.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
             </div>
             {previewRows.map((row) => (
               <div key={`${row.employee_no}-${row.work_date}`} className="grid grid-cols-5 border-t border-[#e6eaf0] p-2">
@@ -256,8 +266,12 @@ function ScheduleImport({
 
         {preview && (
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-[#eef7f0] p-3 text-sm text-[#2d6a4f]">{dictionary.adminSchedule.importableRows} {preview.validRows}</div>
-            <div className="rounded-xl bg-[#fff5f5] p-3 text-sm text-[#c1121f]">{dictionary.adminSchedule.invalidRows} {preview.invalidRows}</div>
+            <div className="rounded-xl bg-[#eef7f0] p-3 text-sm text-[#2d6a4f]">
+              {dictionary.adminSchedule.importableRows} {preview.validRows}
+            </div>
+            <div className="rounded-xl bg-[#fff5f5] p-3 text-sm text-[#c1121f]">
+              {dictionary.adminSchedule.invalidRows} {preview.invalidRows}
+            </div>
           </div>
         )}
       </Section>
@@ -265,8 +279,8 @@ function ScheduleImport({
       <Section title={dictionary.adminSchedule.importSettings}>
         <div className="grid grid-cols-2 gap-2">
           {[
-            { key: "覆盖" as const, label: dictionary.adminSchedule.overwrite },
-            { key: "跳过" as const, label: dictionary.adminSchedule.skip },
+            { key: "overwrite" as const, label: dictionary.adminSchedule.overwrite },
+            { key: "skip" as const, label: dictionary.adminSchedule.skip },
           ].map((item) => (
             <button
               key={item.key}
@@ -284,7 +298,9 @@ function ScheduleImport({
         <Section title={dictionary.adminSchedule.previewErrors}>
           <div className="space-y-2 text-sm text-[#c1121f]">
             {preview.errors.slice(0, 8).map((error, index) => (
-              <p key={`${error.row}-${index}`}>{dictionary.adminSchedule.rowPrefix} {error.row}：{error.message}</p>
+              <p key={`${error.row}-${index}`}>
+                {dictionary.adminSchedule.rowPrefix} {error.row}: {error.message}
+              </p>
             ))}
           </div>
         </Section>
@@ -300,20 +316,22 @@ function ScheduleImport({
         <Section title={dictionary.adminSchedule.submitErrors}>
           <div className="space-y-2 text-sm text-[#c1121f]">
             {serverErrors.slice(0, 8).map((error, index) => (
-              <p key={`${error.row}-${index}`}>{dictionary.adminSchedule.rowPrefix} {error.row}：{error.message}</p>
+              <p key={`${error.row}-${index}`}>
+                {dictionary.adminSchedule.rowPrefix} {error.row}: {error.message}
+              </p>
             ))}
           </div>
         </Section>
       ) : null}
 
-      <button
-        type="button"
-        disabled={!preview || preview.invalidRows > 0 || preview.rows.length === 0 || status === "submitting"}
+      <AsyncActionButton
+        idleLabel={dictionary.adminSchedule.commitImport}
+        pendingLabel={dictionary.adminSchedule.importing}
+        isPending={status === "submitting"}
+        disabled={!preview || preview.invalidRows > 0 || preview.rows.length === 0}
         onClick={() => void handleCommit()}
         className="w-full rounded-2xl bg-[#2d6a4f] py-4 font-semibold text-white shadow-sm disabled:bg-[#8a97a8]"
-      >
-        {status === "submitting" ? dictionary.adminSchedule.importing : dictionary.adminSchedule.commitImport}
-      </button>
+      />
     </>
   );
 }

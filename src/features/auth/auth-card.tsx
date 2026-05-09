@@ -1,6 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { getDictionary, type SupportedLocale } from "@/lib/i18n";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -11,6 +13,7 @@ type AuthCardProps = {
 
 export function AuthCard({ redirectTo = "/schedule", locale = "zh-CN" }: AuthCardProps) {
   const dictionary = getDictionary(locale);
+  const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,7 +46,8 @@ export function AuthCard({ redirectTo = "/schedule", locale = "zh-CN" }: AuthCar
 
       setStatus("success");
       setMessage(dictionary.auth.loginSuccess);
-      window.location.assign(redirectTo);
+      router.replace(redirectTo);
+      router.refresh();
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : dictionary.auth.loginFailed);
@@ -89,16 +93,16 @@ export function AuthCard({ redirectTo = "/schedule", locale = "zh-CN" }: AuthCar
         <div className="rounded-2xl bg-[#f4f7fb] px-4 py-3 text-sm leading-6 text-[#607089]">
           {dictionary.auth.internalOnly}
           <br />
-          {dictionary.auth.initialPassword} <span className="font-semibold text-[#17202f]">Aa123456</span>。
+          {dictionary.auth.initialPassword} <span className="font-semibold text-[#17202f]">Aa123456</span>
         </div>
 
-        <button
+        <AsyncActionButton
           type="submit"
-          disabled={status === "submitting"}
+          idleLabel={dictionary.auth.login}
+          pendingLabel={dictionary.auth.loggingIn}
+          isPending={status === "submitting"}
           className="w-full rounded-2xl bg-[#184e77] py-3 text-sm font-medium text-white disabled:bg-[#8a97a8]"
-        >
-          {status === "submitting" ? dictionary.auth.loggingIn : dictionary.auth.login}
-        </button>
+        />
       </form>
     </section>
   );

@@ -1,6 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { AsyncActionButton } from "@/components/ui/async-action-button";
 import { getDictionary } from "@/lib/i18n";
 import { Section } from "@/components/ui/section";
 import { SignOutButton } from "@/features/auth/sign-out-button";
@@ -8,14 +10,15 @@ import type { AppViewer } from "@/features/auth/viewer";
 
 export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "ready" }> }) {
   const dictionary = getDictionary(viewer.locale);
+  const router = useRouter();
   const avatar = viewer.profile.fullName.slice(0, 1);
-  const [localeState, setLocaleState] = useState<"zh-CN" | "en" | "browser">(viewer.profile.preferredLocale ?? "browser");
+  const initialLocale = viewer.profile.preferredLocale ?? "browser";
+  const [localeState, setLocaleState] = useState<"zh-CN" | "en" | "browser">(initialLocale);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
 
-  async function updateLocale(value: "zh-CN" | "en" | "browser") {
-    setLocaleState(value);
+  async function updateLocale() {
     setStatus("saving");
     setMessage("");
 
@@ -25,7 +28,7 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        preferredLocale: value === "browser" ? null : value,
+        preferredLocale: localeState === "browser" ? null : localeState,
       }),
     });
 
@@ -38,7 +41,7 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
 
     setStatus("saved");
     setMessage(dictionary.profile.localeSaved);
-    window.location.reload();
+    router.refresh();
   }
 
   return (
@@ -49,7 +52,7 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#9a6b3d]">{dictionary.common.komoMember}</p>
             <h2 className="mt-1 text-lg font-semibold">
-              {viewer.profile.fullName} · {viewer.profile.employeeNo ?? dictionary.profile.noEmployeeNo}
+              {viewer.profile.fullName} 路 {viewer.profile.employeeNo ?? dictionary.profile.noEmployeeNo}
             </h2>
             <p className="text-sm text-[#607089]">{viewer.profile.departmentName ?? dictionary.profile.unassignedDepartment}</p>
             <p className="text-sm text-[#607089]">{viewer.user.email ?? dictionary.profile.unboundEmail}</p>
@@ -60,9 +63,9 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
       <MenuSection
         title={dictionary.profile.myAccount}
         items={[
-          `${dictionary.profile.employeeStatus}：${viewer.profile.status === "active" ? dictionary.profile.normal : dictionary.profile.suspended}`,
-          `${dictionary.profile.role}：${viewer.roles.join(" / ") || dictionary.profile.noRole}`,
-          `${dictionary.profile.userId}：${viewer.user.id.slice(0, 8)}...`,
+          `${dictionary.profile.employeeStatus}: ${viewer.profile.status === "active" ? dictionary.profile.normal : dictionary.profile.suspended}`,
+          `${dictionary.profile.role}: ${viewer.roles.join(" / ") || dictionary.profile.noRole}`,
+          `${dictionary.profile.userId}: ${viewer.user.id.slice(0, 8)}...`,
         ]}
         locale={viewer.locale}
       />
@@ -81,13 +84,21 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
                 key={item.key}
                 type="button"
                 disabled={status === "saving"}
-                onClick={() => void updateLocale(item.key)}
+                onClick={() => setLocaleState(item.key)}
                 className={`rounded-xl px-3 py-3 text-sm font-medium ${localeState === item.key ? "bg-[#184e77] text-white" : "bg-[#eef2f6] text-[#526174]"}`}
               >
                 {item.label}
               </button>
             ))}
           </div>
+          <AsyncActionButton
+            idleLabel={dictionary.common.save}
+            pendingLabel={dictionary.common.saving}
+            isPending={status === "saving"}
+            disabled={localeState === initialLocale}
+            onClick={() => void updateLocale()}
+            className="w-full rounded-2xl bg-[#184e77] py-3 text-sm font-medium text-white disabled:bg-[#8a97a8]"
+          />
           {message ? <p className={status === "error" ? "text-[#c1121f]" : "text-[#2d6a4f]"}>{message}</p> : null}
         </div>
       </Section>
@@ -96,7 +107,7 @@ export function ProfileView({ viewer }: { viewer: Extract<AppViewer, { state: "r
         <div className="space-y-2 text-sm">
           <p className="text-[#607089]">{dictionary.profile.timezoneDescription}</p>
           <div className="rounded-xl bg-[#f6f8fb] p-3 font-medium text-[#17202f]">
-            {dictionary.profile.timezoneValuePrefix}：{timeZone}
+            {dictionary.profile.timezoneValuePrefix}: {timeZone}
           </div>
         </div>
       </Section>

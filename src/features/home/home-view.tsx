@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { getDictionary } from "@/lib/i18n";
+import { AppLink } from "@/components/ui/app-link";
 import { Section } from "@/components/ui/section";
 import type { AppViewer } from "@/features/auth/viewer";
 
@@ -18,7 +18,7 @@ export function HomeView({ viewer }: { viewer: Extract<AppViewer, { state: "read
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">{dictionary.common.komoWorkspace}</p>
             <h2 className="mt-1 text-xl font-semibold">{viewer.profile.fullName}</h2>
             <p className="text-sm text-white/85">
-              {departmentLabel} · {viewer.user.email ?? dictionary.home.unboundEmail}
+              {departmentLabel} 路 {viewer.user.email ?? dictionary.home.unboundEmail}
             </p>
           </div>
         </div>
@@ -26,10 +26,15 @@ export function HomeView({ viewer }: { viewer: Extract<AppViewer, { state: "read
 
       <section className="grid grid-cols-2 gap-3">
         {dictionary.home.quickActions.map((item) => (
-          <Link key={item.title} href={item.href} className="rounded-2xl border border-[#eadfce] bg-white p-4 shadow-sm">
+          <AppLink
+            key={item.title}
+            href={item.href}
+            className="rounded-2xl border border-[#eadfce] bg-white p-4 shadow-sm transition"
+            pendingClassName="scale-[0.99] bg-[#f8f3ec]"
+          >
             <p className="font-semibold">{item.title}</p>
             <p className="mt-2 text-xs leading-5 text-[#607089]">{item.description}</p>
-          </Link>
+          </AppLink>
         ))}
       </section>
 
@@ -37,8 +42,12 @@ export function HomeView({ viewer }: { viewer: Extract<AppViewer, { state: "read
         <div className="space-y-3">
           <div className="rounded-xl bg-[#f8f3ec] p-3">
             <div className="flex items-center justify-between">
-              <p className="font-medium">{dictionary.home.employeeNo} {viewer.profile.employeeNo ?? dictionary.common.notSet}</p>
-              <span className="rounded-full bg-[#8a5a2f] px-2 py-1 text-xs text-white">{viewer.profile.status === "active" ? dictionary.common.enabled : dictionary.common.disabled}</span>
+              <p className="font-medium">
+                {dictionary.home.employeeNo} {viewer.profile.employeeNo ?? dictionary.common.notSet}
+              </p>
+              <span className="rounded-full bg-[#8a5a2f] px-2 py-1 text-xs text-white">
+                {viewer.profile.status === "active" ? dictionary.common.enabled : dictionary.common.disabled}
+              </span>
             </div>
             <p className="mt-1 text-sm text-[#6b5845]">{dictionary.home.welcome}</p>
           </div>
