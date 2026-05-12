@@ -2,10 +2,12 @@
 
 import { AppLink } from "@/components/ui/app-link";
 import { cx } from "@/components/ui/class-name";
+import { clearPendingNavigation, getPendingNavigationServerSnapshot, getPendingNavigationSnapshot, subscribePendingNavigation } from "@/components/ui/navigation-pending";
+import { PageShellSkeletonContent } from "@/components/ui/page-shell-skeleton-content";
 import type { MainView } from "@/features/shared/types";
 import { getDictionary, type SupportedLocale } from "@/lib/i18n";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 type MobileShellProps = {
   active: MainView;
@@ -24,6 +26,9 @@ const shellPrefetchRoutes = ["/", "/approval", "/schedule", "/checkin", "/profil
 
 export function MobileShell({ active, locale = "zh-CN", children }: MobileShellProps) {
   const router = useRouter();
+  const pendingNavigation = useSyncExternalStore(subscribePendingNavigation, getPendingNavigationSnapshot, getPendingNavigationServerSnapshot);
+  const optimisticActive = pendingNavigation && pendingNavigation.view !== active ? pendingNavigation.view : active;
+  const isOptimisticLoading = optimisticActive !== active;
   const dictionary = getDictionary(locale);
   const titles: Record<MainView, string> = {
     home: dictionary.nav.home,
@@ -42,6 +47,12 @@ export function MobileShell({ active, locale = "zh-CN", children }: MobileShellP
     { key: "checkin", label: dictionary.nav.checkin, href: "/checkin" },
     { key: "profile", label: dictionary.nav.profile, href: "/profile" },
   ];
+
+  useEffect(() => {
+    if (pendingNavigation?.view === active) {
+      clearPendingNavigation();
+    }
+  }, [active, pendingNavigation]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -65,7 +76,7 @@ export function MobileShell({ active, locale = "zh-CN", children }: MobileShellP
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-[#a87847]">KOMO WORKSPACE</p>
-              <h1 className="mt-1 text-[1.35rem] font-semibold tracking-[-0.02em] text-[#17202f]">{titles[active]}</h1>
+              <h1 className="mt-1 text-[1.35rem] font-semibold tracking-[-0.02em] text-[#17202f]">{titles[optimisticActive]}</h1>
             </div>
             {active === "adminSchedule" || active === "adminApproval" ? (
               <AppLink
@@ -87,8 +98,8 @@ export function MobileShell({ active, locale = "zh-CN", children }: MobileShellP
           </div>
         </header>
 
-        <main className="flex-1 space-y-4 overflow-y-auto px-4 pb-32 pt-4 [scrollbar-gutter:stable]">{children}</main>
-        {active !== "adminSchedule" && active !== "adminApproval" && <BottomNav active={active} navItems={navItems} />}
+        <main className="flex-1 space-y-4 overflow-y-auto px-4 pb-32 pt-4 [scrollbar-gutter:stable]">{isOptimisticLoading ? <PageShellSkeletonContent /> : children}</main>
+        {active !== "adminSchedule" && active !== "adminApproval" && <BottomNav active={optimisticActive} navItems={navItems} />}
       </div>
     </div>
   );

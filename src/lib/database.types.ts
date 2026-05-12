@@ -184,6 +184,78 @@ export type Database = {
         Insert: Partial<Database["public"]["Tables"]["approval_steps"]["Row"]> & { request_id: string; approver_type: Database["public"]["Tables"]["approval_steps"]["Row"]["approver_type"]; step_order: number };
         Update: Partial<Database["public"]["Tables"]["approval_steps"]["Row"]>;
       };
+      admin_data_uploads: {
+        Row: {
+          id: string;
+          dataset: "sales" | "customer" | "target";
+          uploaded_by: string | null;
+          file_name: string;
+          total_rows: number;
+          success_rows: number;
+          failed_rows: number;
+          errors: Json;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["admin_data_uploads"]["Row"]> & {
+          dataset: "sales" | "customer" | "target";
+          file_name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["admin_data_uploads"]["Row"]>;
+      };
+      sales_records: {
+        Row: AdminBusinessRecordRow;
+        Insert: AdminBusinessRecordInsert;
+        Update: Partial<AdminBusinessRecordRow>;
+      };
+      customer_records: {
+        Row: AdminCustomerRecordRow;
+        Insert: AdminCustomerRecordInsert;
+        Update: Partial<AdminCustomerRecordRow>;
+      };
+      store_daily_targets: {
+        Row: StoreDailyTargetRow;
+        Insert: StoreDailyTargetInsert;
+        Update: Partial<StoreDailyTargetRow>;
+      };
+      ops_tasks: {
+        Row: OpsTaskRow;
+        Insert: OpsTaskInsert;
+        Update: Partial<OpsTaskRow>;
+      };
+      admin_view_configs: {
+        Row: {
+          id: string;
+          dataset: "sales" | "customer" | "target";
+          config: Json;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["admin_view_configs"]["Row"]> & {
+          dataset: "sales" | "customer" | "target";
+          config: Json;
+        };
+        Update: Partial<Database["public"]["Tables"]["admin_view_configs"]["Row"]>;
+      };
+      admin_report_configs: {
+        Row: {
+          id: string;
+          dataset: "sales" | "customer" | "target";
+          title: string;
+          kind: "detail" | "aggregate";
+          config: Json;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["admin_report_configs"]["Row"]> & {
+          dataset: "sales" | "customer" | "target";
+          title: string;
+          kind: "detail" | "aggregate";
+          config: Json;
+        };
+        Update: Partial<Database["public"]["Tables"]["admin_report_configs"]["Row"]>;
+      };
       notifications: {
         Row: {
           id: string;
@@ -198,4 +270,132 @@ export type Database = {
       };
     };
   };
+};
+
+export type AdminBusinessRecordRow = {
+  id: string;
+  record_date: string;
+  org_unit: string | null;
+  employee_no: string | null;
+  person_name: string | null;
+  amount: number;
+  quantity: number | null;
+  category: string | null;
+  reference_no: string | null;
+  remark: string | null;
+  sale_type: string | null;
+  sale_category: string | null;
+  item_no: string | null;
+  item_name: string | null;
+  standard_price: number | null;
+  receivable_amount: number | null;
+  payment_method: string | null;
+  payment_amount: number | null;
+  cash_payment_amount: number | null;
+  equity_payment_amount: number | null;
+  related_equity: string | null;
+  equity_book_change: number | null;
+  book_unit: string | null;
+  accounting_amount: number | null;
+  equity_store: string | null;
+  employee_name: string | null;
+  actual_performance: number | null;
+  assignment_type: string | null;
+  service_role: string | null;
+  employee_department: string | null;
+  customer_name: string | null;
+  customer_no: string | null;
+  customer_phone: string | null;
+  customer_email: string | null;
+  referrer: string | null;
+  document_no: string | null;
+  document_type: string | null;
+  customer_gender: string | null;
+  visit_channel: string | null;
+  cashier: string | null;
+  accounting_date: string | null;
+  operation_time: string | null;
+  raw_data: Json;
+  upload_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminBusinessRecordInsert = Partial<AdminBusinessRecordRow> & {
+  record_date: string;
+};
+
+export type AdminCustomerRecordRow = {
+  id: string;
+  customer_name: string;
+  customer_no: string | null;
+  card_no: string | null;
+  phone: string | null;
+  email: string | null;
+  birthday: string | null;
+  tags: string | null;
+  channel: string | null;
+  referrer: string | null;
+  advisor: string | null;
+  last_consumed_on: string | null;
+  total_consumptions: number | null;
+  created_on: string | null;
+  source: string | null;
+  org_unit: string | null;
+  remark: string | null;
+  raw_data: Json;
+  upload_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminCustomerRecordInsert = Partial<AdminCustomerRecordRow> & {
+  customer_name: string;
+};
+
+export type StoreDailyTargetRow = {
+  id: string;
+  target_date: string;
+  org_unit: string;
+  target_new_customers: number;
+  target_equity_sales_amount: number;
+  target_service_sales_amount: number;
+  remark: string | null;
+  raw_data: Json;
+  upload_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StoreDailyTargetInsert = Partial<StoreDailyTargetRow> & {
+  target_date: string;
+  org_unit: string;
+};
+
+export type OpsTaskRow = {
+  id: string;
+  task_date: string;
+  org_unit: string;
+  task_type: "sales_alert" | "new_customer_alert" | "equity_sales_alert" | "service_sales_alert";
+  title: string;
+  summary: string;
+  reason_snapshot: Json;
+  assignee_profile_id: string | null;
+  status: "open" | "in_progress" | "resolved" | "closed";
+  due_at: string | null;
+  resolved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OpsTaskInsert = Partial<OpsTaskRow> & {
+  task_date: string;
+  org_unit: string;
+  task_type: OpsTaskRow["task_type"];
+  title: string;
+  summary: string;
 };

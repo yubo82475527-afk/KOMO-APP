@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AsyncActionButton } from "@/components/ui/async-action-button";
-import { MobileShell } from "@/components/layout/mobile-shell";
 import { cx } from "@/components/ui/class-name";
 import { Section } from "@/components/ui/section";
 import type { ApprovalTemplateAdminData, ApprovalTemplateForm, ApproverType } from "./approval-model";
@@ -81,7 +80,7 @@ export function ApprovalTemplateAdminView({
   }
 
   return (
-    <MobileShell active="adminApproval">
+    <>
       <Section title="审批模板">
         <div className="space-y-3">
           <label className="block">
@@ -146,6 +145,6 @@ export function ApprovalTemplateAdminView({
         onClick={() => void save()}
         className="w-full rounded-2xl bg-[#184e77] py-4 font-semibold text-white shadow-sm disabled:bg-[#8a97a8]"
       />
-    </MobileShell>
+    </>
   );
 }

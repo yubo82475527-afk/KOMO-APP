@@ -1,0 +1,110 @@
+alter table public.sales_records
+  add column if not exists sale_type text,
+  add column if not exists sale_category text,
+  add column if not exists item_no text,
+  add column if not exists item_name text,
+  add column if not exists standard_price numeric(14, 2),
+  add column if not exists receivable_amount numeric(14, 2),
+  add column if not exists payment_method text,
+  add column if not exists payment_amount numeric(14, 2),
+  add column if not exists cash_payment_amount numeric(14, 2),
+  add column if not exists equity_payment_amount numeric(14, 2),
+  add column if not exists related_equity text,
+  add column if not exists equity_book_change numeric(14, 2),
+  add column if not exists book_unit text,
+  add column if not exists accounting_amount numeric(14, 2),
+  add column if not exists equity_store text,
+  add column if not exists employee_name text,
+  add column if not exists actual_performance numeric(14, 2),
+  add column if not exists assignment_type text,
+  add column if not exists service_role text,
+  add column if not exists employee_department text,
+  add column if not exists customer_name text,
+  add column if not exists customer_no text,
+  add column if not exists customer_phone text,
+  add column if not exists customer_email text,
+  add column if not exists referrer text,
+  add column if not exists document_no text,
+  add column if not exists document_type text,
+  add column if not exists customer_gender text,
+  add column if not exists visit_channel text,
+  add column if not exists cashier text,
+  add column if not exists accounting_date date,
+  add column if not exists operation_time timestamptz;
+
+create index if not exists sales_records_customer_no_idx on public.sales_records(customer_no);
+create index if not exists sales_records_document_no_idx on public.sales_records(document_no);
+create index if not exists sales_records_accounting_date_idx on public.sales_records(accounting_date desc);
+
+update public.admin_view_configs
+set
+  config = '{
+    "dataset": "sales",
+    "title": "销售数据",
+    "columns": [
+      { "key": "record_date", "label": "日期", "type": "date", "visible": true },
+      { "key": "org_unit", "label": "门店/部门", "type": "text", "visible": true },
+      { "key": "person_name", "label": "人员", "type": "text", "visible": true },
+      { "key": "amount", "label": "销售额", "type": "number", "visible": true, "summary": "sum" },
+      { "key": "quantity", "label": "数量", "type": "number", "visible": true, "summary": "sum" },
+      { "key": "sale_type", "label": "类型", "type": "text", "visible": true },
+      { "key": "sale_category", "label": "分类", "type": "text", "visible": true },
+      { "key": "item_no", "label": "编号", "type": "text", "visible": false },
+      { "key": "item_name", "label": "名称", "type": "text", "visible": true },
+      { "key": "standard_price", "label": "标准价", "type": "number", "visible": false, "summary": "sum" },
+      { "key": "receivable_amount", "label": "应收金额", "type": "number", "visible": true, "summary": "sum" },
+      { "key": "payment_method", "label": "支付方式", "type": "text", "visible": true },
+      { "key": "payment_amount", "label": "支付金额", "type": "number", "visible": true, "summary": "sum" },
+      { "key": "cash_payment_amount", "label": "现金类支付", "type": "number", "visible": false, "summary": "sum" },
+      { "key": "equity_payment_amount", "label": "权益类支付", "type": "number", "visible": false, "summary": "sum" },
+      { "key": "related_equity", "label": "涉及权益", "type": "text", "visible": false },
+      { "key": "equity_book_change", "label": "权益账面变动", "type": "number", "visible": false, "summary": "sum" },
+      { "key": "book_unit", "label": "账面单位", "type": "text", "visible": false },
+      { "key": "accounting_amount", "label": "核算金额", "type": "number", "visible": false, "summary": "sum" },
+      { "key": "equity_store", "label": "权益归属门店", "type": "text", "visible": false },
+      { "key": "employee_name", "label": "员工", "type": "text", "visible": false },
+      { "key": "actual_performance", "label": "实业绩", "type": "number", "visible": false, "summary": "sum" },
+      { "key": "assignment_type", "label": "指派类型", "type": "text", "visible": false },
+      { "key": "service_role", "label": "服务角色", "type": "text", "visible": false },
+      { "key": "employee_department", "label": "员工部门", "type": "text", "visible": false },
+      { "key": "customer_name", "label": "客户名称", "type": "text", "visible": true },
+      { "key": "customer_no", "label": "客户编号", "type": "text", "visible": true },
+      { "key": "customer_phone", "label": "手机号", "type": "text", "visible": false },
+      { "key": "customer_email", "label": "邮箱", "type": "text", "visible": false },
+      { "key": "referrer", "label": "推荐人", "type": "text", "visible": false },
+      { "key": "document_no", "label": "单据编号", "type": "text", "visible": true },
+      { "key": "document_type", "label": "单据类型", "type": "text", "visible": false },
+      { "key": "customer_gender", "label": "男客/女客", "type": "text", "visible": false },
+      { "key": "visit_channel", "label": "进店渠道", "type": "text", "visible": false },
+      { "key": "cashier", "label": "收银员", "type": "text", "visible": false },
+      { "key": "accounting_date", "label": "账务日期", "type": "date", "visible": false },
+      { "key": "operation_time", "label": "操作时间", "type": "date", "visible": false },
+      { "key": "reference_no", "label": "单号", "type": "text", "visible": false },
+      { "key": "remark", "label": "备注", "type": "text", "visible": false }
+    ],
+    "filters": [
+      { "key": "record_date", "label": "日期", "type": "dateRange" },
+      { "key": "org_unit", "label": "门店/部门", "type": "text" },
+      { "key": "person_name", "label": "人员", "type": "text" },
+      { "key": "category", "label": "分类", "type": "text" }
+    ],
+    "import": {
+      "requiredColumns": [],
+      "aliases": {
+        "日期": "record_date", "账务日期": "accounting_date", "操作时间": "operation_time",
+        "门店": "org_unit", "部门": "org_unit", "门店部门": "org_unit", "权益归属门店": "equity_store",
+        "工号": "employee_no", "员工编号": "employee_no", "人员": "person_name", "姓名": "person_name", "员工": "employee_name",
+        "类型": "sale_type", "分类": "sale_category", "编号": "item_no", "名称": "item_name", "数量": "quantity",
+        "标准价": "standard_price", "应收金额": "receivable_amount", "支付方式": "payment_method", "支付金额": "payment_amount",
+        "现金类支付": "cash_payment_amount", "权益类支付": "equity_payment_amount", "涉及权益": "related_equity",
+        "权益账面变动": "equity_book_change", "账面单位": "book_unit", "核算金额": "accounting_amount",
+        "实业绩": "actual_performance", "指派类型": "assignment_type", "服务角色": "service_role", "员工部门": "employee_department",
+        "客户名称": "customer_name", "客户编号": "customer_no", "手机号": "customer_phone", "邮箱": "customer_email", "推荐人": "referrer",
+        "单据编号": "document_no", "单据类型": "document_type", "男客/女客": "customer_gender", "进店渠道": "visit_channel", "收银员": "cashier",
+        "销售额": "amount", "金额": "amount", "销售数量": "quantity", "单号": "reference_no", "备注": "remark"
+      }
+    },
+    "exportColumns": ["record_date", "org_unit", "person_name", "amount", "quantity", "sale_type", "sale_category", "item_no", "item_name", "standard_price", "receivable_amount", "payment_method", "payment_amount", "cash_payment_amount", "equity_payment_amount", "related_equity", "equity_book_change", "book_unit", "accounting_amount", "equity_store", "employee_name", "actual_performance", "assignment_type", "service_role", "employee_department", "customer_name", "customer_no", "customer_phone", "customer_email", "referrer", "document_no", "document_type", "customer_gender", "visit_channel", "cashier", "accounting_date", "operation_time"]
+  }'::jsonb,
+  updated_at = now()
+where dataset = 'sales';

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { isDepartmentInScope, resolveAdminOrgScope } from "@/features/admin/admin-org-scope";
+import { normalizeDuplicateMode, validateRows, type ImportValidationError, type NormalizedScheduleRow } from "@/features/admin-schedule/import-parser";
+import { findProfileForUser } from "@/features/auth/profile-resolution";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { findProfileForUser } from "@/features/auth/profile-resolution";
-import { normalizeDuplicateMode, validateRows, type ImportValidationError, type NormalizedScheduleRow } from "@/features/admin-schedule/import-parser";
+
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
@@ -26,12 +29,26 @@ export async function POST(request: Request) {
   const body = await request.json();
   const fileName = String(body.fileName ?? "schedule-import.csv");
   const duplicateMode = normalizeDuplicateMode(String(body.duplicateMode ?? "overwrite"));
+  const scopeDepartmentId = typeof body.scopeDepartmentId === "string" ? body.scopeDepartmentId : null;
   const rows = Array.isArray(body.rows) ? (body.rows as NormalizedScheduleRow[]) : [];
   const targetMonth = typeof body.targetMonth === "string" ? body.targetMonth : null;
+  const roles = await getRoleCodes(adminClient, operatorProfile.id);
 
-  const isAllowed = await hasAnyRole(adminClient, operatorProfile.id, ["admin", "hr"]);
-  if (!isAllowed) {
-    return NextResponse.json({ error: "只有管理员或 HR 可以导入排班。" }, { status: 403 });
+  if (!roles.some((role) => ["admin", "hr", "manager"].includes(role))) {
+    return NextResponse.json({ error: "只有管理员、HR 或运营负责人可以导入排班。" }, { status: 403 });
+  }
+
+  const scope = await resolveAdminOrgScope(
+    {
+      adminClient,
+      profileId: operatorProfile.id,
+      profileDepartmentId: operatorProfile.department_id,
+      roles,
+    },
+    scopeDepartmentId,
+  );
+  if (scope.state === "error") {
+    return NextResponse.json({ error: scope.message }, { status: 403 });
   }
 
   const validationErrors = validateRows(rows);
@@ -55,24 +72,18 @@ export async function POST(request: Request) {
   }
 
   if (validationErrors.length > 0) {
-    return NextResponse.json(
-      { import_id: importRecord.id, success_rows: 0, failed_rows: validationErrors.length, errors: validationErrors },
-      { status: 422 },
-    );
+    return NextResponse.json({ import_id: importRecord.id, success_rows: 0, failed_rows: validationErrors.length, errors: validationErrors }, { status: 422 });
   }
 
   const employeeNos = [...new Set(rows.map((row) => row.employee_no))];
   const shiftCodes = [...new Set(rows.filter((row) => row.shift_code !== "XIU" && row.shift_code !== "-").map((row) => row.shift_code))];
 
-  const { data: profiles, error: profileError } = await adminClient.from("profiles").select("id, employee_no").in("employee_no", employeeNos);
+  const { data: profiles, error: profileError } = await adminClient.from("profiles").select("id, employee_no, department_id").in("employee_no", employeeNos);
   if (profileError) {
     return NextResponse.json({ error: profileError.message }, { status: 500 });
   }
 
-  const { data: shifts, error: shiftError } = shiftCodes.length
-    ? await adminClient.from("shift_templates").select("id, code").in("code", shiftCodes)
-    : { data: [], error: null };
-
+  const { data: shifts, error: shiftError } = shiftCodes.length ? await adminClient.from("shift_templates").select("id, code").in("code", shiftCodes) : { data: [], error: null };
   if (shiftError) {
     return NextResponse.json({ error: shiftError.message }, { status: 500 });
   }
@@ -82,7 +93,12 @@ export async function POST(request: Request) {
     const profile = profiles?.find((item) => item.employee_no === row.employee_no);
     const shift = shifts?.find((item) => item.code === row.shift_code);
 
-    if (!profile) referenceErrors.push({ row: index + 2, column: "employee_no", message: `工号 ${row.employee_no} 不存在。` });
+    if (!profile) {
+      referenceErrors.push({ row: index + 2, column: "employee_no", message: `工号 ${row.employee_no} 不存在。` });
+    }
+    if (profile && !isDepartmentInScope(scope, profile.department_id)) {
+      referenceErrors.push({ row: index + 2, column: "employee_no", message: `工号 ${row.employee_no} 不属于当前选择的部门/门店范围。` });
+    }
     if (row.shift_code !== "XIU" && row.shift_code !== "-" && !shift) {
       referenceErrors.push({ row: index + 2, column: "shift_code", message: `班次 ${row.shift_code} 尚未配置。` });
     }
@@ -98,18 +114,12 @@ export async function POST(request: Request) {
 
   if (referenceErrors.length > 0) {
     await adminClient.from("schedule_imports").update({ failed_rows: referenceErrors.length, errors: referenceErrors }).eq("id", importRecord.id);
-    return NextResponse.json(
-      { import_id: importRecord.id, success_rows: 0, failed_rows: referenceErrors.length, errors: referenceErrors },
-      { status: 422 },
-    );
+    return NextResponse.json({ import_id: importRecord.id, success_rows: 0, failed_rows: referenceErrors.length, errors: referenceErrors }, { status: 422 });
   }
 
   const commitPayload = duplicateMode === "skip" ? await removeExistingSchedules(adminClient, schedulePayload) : schedulePayload;
-
   const { error: writeError } =
-    duplicateMode === "overwrite"
-      ? await adminClient.from("schedules").upsert(commitPayload, { onConflict: "profile_id,work_date" })
-      : await adminClient.from("schedules").insert(commitPayload);
+    duplicateMode === "overwrite" ? await adminClient.from("schedules").upsert(commitPayload, { onConflict: "profile_id,work_date" }) : await adminClient.from("schedules").insert(commitPayload);
 
   if (writeError) {
     return NextResponse.json({ error: writeError.message }, { status: 500 });
@@ -134,21 +144,24 @@ export async function POST(request: Request) {
   });
 }
 
-async function hasAnyRole(adminClient: ReturnType<typeof createSupabaseAdminClient>, profileId: string, allowedRoles: string[]) {
+async function getRoleCodes(adminClient: AdminClient, profileId: string) {
   const { data, error } = await adminClient.from("user_roles").select("roles!inner(code)").eq("profile_id", profileId);
   if (error) throw error;
 
   return (
-    data?.some((row) => {
+    data?.flatMap((row) => {
       const role = (row as { roles?: { code?: string } | Array<{ code?: string }> }).roles;
-      const codes = Array.isArray(role) ? role.map((item) => item.code) : [role?.code];
-      return codes.some((code) => code && allowedRoles.includes(code));
-    }) ?? false
+      return Array.isArray(role)
+        ? role.map((item) => item.code).filter((code): code is string => Boolean(code))
+        : role?.code
+          ? [role.code]
+          : [];
+    }) ?? []
   );
 }
 
 async function removeExistingSchedules(
-  adminClient: ReturnType<typeof createSupabaseAdminClient>,
+  adminClient: AdminClient,
   rows: Array<{ profile_id: string | undefined; work_date: string; shift_template_id: string | null; schedule_type: string; import_id: string }>,
 ) {
   if (rows.length === 0) return rows;

@@ -4,6 +4,7 @@ import Link, { type LinkProps } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { cx } from "@/components/ui/class-name";
+import { startPendingNavigation } from "@/components/ui/navigation-pending";
 import { LOCALE_COOKIE_NAME, normalizeLocale } from "@/lib/locale-cookie";
 
 type AppLinkProps = LinkProps &
@@ -80,6 +81,7 @@ export function AppLink({
 
         const currentLocale = normalizeLocale(document.documentElement.lang);
         document.cookie = `${LOCALE_COOKIE_NAME}=${currentLocale}; path=/; max-age=31536000; samesite=lax`;
+        startPendingNavigation(hrefValue);
         setPendingSourcePath(pathname);
       }}
       aria-busy={isPending}
