@@ -1,6 +1,4 @@
-import { AdminShell } from "@/components/layout/admin-shell";
 import { getAdminGate } from "@/features/admin/admin-auth";
-import { getAdminShellScope } from "@/features/admin/admin-shell-scope";
 import { getAdminViewConfigs, listAdminDataRecords, normalizeAdminDataset } from "@/features/admin-data/admin-data-service";
 import { AdminReportsView } from "@/features/admin-data/reports-view";
 
@@ -28,11 +26,7 @@ export default async function AdminReportsPage({
     page: 1,
     pageSize: 20,
   };
-  const [configs, scope, reportResult] = await Promise.all([
-    getAdminViewConfigs(),
-    getAdminShellScope(params.scopeDepartmentId),
-    listAdminDataRecords(reportFilters),
-  ]);
+  const [configs, reportResult] = await Promise.all([getAdminViewConfigs(), listAdminDataRecords(reportFilters)]);
   const reportsKey = [
     params.scopeDepartmentId ?? "all",
     params.reportId ?? "",
@@ -44,14 +38,6 @@ export default async function AdminReportsPage({
     params.category ?? "",
     params.keyword ?? "",
   ].join(":");
-  return (
-    <AdminShell active="reports" locale={gate.viewer.locale} viewer={{ fullName: gate.viewer.profile.fullName, roles: gate.viewer.roles }} scope={scope}>
-      <AdminReportsView
-        key={reportsKey}
-        configs={configs}
-        initialReportId={params.reportId}
-        initialResult={"state" in reportResult ? null : reportResult}
-      />
-    </AdminShell>
-  );
+
+  return <AdminReportsView key={reportsKey} configs={configs} initialReportId={params.reportId} initialResult={"state" in reportResult ? null : reportResult} />;
 }

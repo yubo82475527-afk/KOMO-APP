@@ -1,5 +1,5 @@
-import { AdminShellSkeleton } from "@/components/ui/admin-shell-skeleton";
+import { AdminContentSkeleton } from "@/components/layout/admin-shell";
 
 export default function Loading() {
-  return <AdminShellSkeleton />;
+  return <AdminContentSkeleton />;
 }

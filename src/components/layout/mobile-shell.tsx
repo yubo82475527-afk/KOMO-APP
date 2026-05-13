@@ -27,7 +27,7 @@ const shellPrefetchRoutes = ["/", "/approval", "/schedule", "/checkin", "/profil
 export function MobileShell({ active, locale = "zh-CN", children }: MobileShellProps) {
   const router = useRouter();
   const pendingNavigation = useSyncExternalStore(subscribePendingNavigation, getPendingNavigationSnapshot, getPendingNavigationServerSnapshot);
-  const optimisticActive = pendingNavigation && pendingNavigation.view !== active ? pendingNavigation.view : active;
+  const optimisticActive = pendingNavigation?.type === "mobile" && pendingNavigation.view !== active ? pendingNavigation.view : active;
   const isOptimisticLoading = optimisticActive !== active;
   const dictionary = getDictionary(locale);
   const titles: Record<MainView, string> = {
@@ -49,7 +49,7 @@ export function MobileShell({ active, locale = "zh-CN", children }: MobileShellP
   ];
 
   useEffect(() => {
-    if (pendingNavigation?.view === active) {
+    if (pendingNavigation?.type === "mobile" && pendingNavigation.view === active) {
       clearPendingNavigation();
     }
   }, [active, pendingNavigation]);
