@@ -156,6 +156,18 @@ export function AdminOpsOverviewView({ initialData }: { initialData: OpsOverview
 
       {message ? <div className="rounded-lg border border-[#cfe7d6] bg-white px-4 py-3 text-sm text-[#2d6a4f] shadow-sm">{message}</div> : null}
 
+      <section className="rounded-lg border border-[#d7dee7] bg-white px-4 py-3 text-sm text-[#607089] shadow-sm">
+        当前金额口径：<span className="font-semibold text-[#17202f]">{data.scope.displayCurrency}</span>
+        {data.scope.currencyMode === "base" ? "，跨币种范围已按月度汇率折算。" : "，当前范围使用本币展示。"}
+      </section>
+
+      {data.scope.missingExchangeRates.length > 0 ? (
+        <section className="rounded-lg border border-[#ffe1aa] bg-[#fffaf0] px-4 py-3 text-sm text-[#8a5a00]">
+          缺少汇率：{data.scope.missingExchangeRates.slice(0, 8).join("、")}
+          {data.scope.missingExchangeRates.length > 8 ? ` 等 ${data.scope.missingExchangeRates.length} 条` : ""}。缺少汇率的金额不会计入 CNY 汇总。
+        </section>
+      ) : null}
+
       {data.unboundOrgUnits.length > 0 ? (
         <section className="rounded-lg border border-[#ffe1aa] bg-[#fffaf0] px-4 py-3 text-sm text-[#8a5a00]">
           未绑定门店：{data.unboundOrgUnits.slice(0, 8).join("、")}
@@ -166,7 +178,7 @@ export function AdminOpsOverviewView({ initialData }: { initialData: OpsOverview
 
       <section className="grid gap-3 xl:grid-cols-4">
         {data.metrics.map((metric) => (
-          <MetricCard key={metric.key} label={metric.label} actual={metric.actual} target={metric.target} rate={metric.achievementRate} />
+          <MetricCard key={metric.key} label={metric.label} actual={metric.actual} target={metric.target} rate={metric.achievementRate} currencyCode={metric.currencyCode} />
         ))}
       </section>
 
@@ -294,11 +306,11 @@ function buildOverviewHref(input: {
   return query ? `/admin/overview?${query}` : "/admin/overview";
 }
 
-function MetricCard({ label, actual, target, rate }: { label: string; actual: number; target: number; rate: number | null }) {
+function MetricCard({ label, actual, target, rate, currencyCode }: { label: string; actual: number; target: number; rate: number | null; currencyCode?: string }) {
   return (
     <div className="rounded-lg border border-[#d7dee7] bg-white p-4 shadow-sm">
       <p className="text-sm text-[#607089]">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{formatNumber(actual)}</p>
+      <p className="mt-2 text-2xl font-semibold">{currencyCode ? `${formatNumber(actual)} ${currencyCode}` : formatNumber(actual)}</p>
       <div className="mt-3 flex items-center justify-between text-xs text-[#607089]">
         <span>目标 {formatNumber(target)}</span>
         <span>{rate === null ? "未配置目标" : `${Math.round(rate * 100)}%`}</span>

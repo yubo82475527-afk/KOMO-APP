@@ -1,6 +1,7 @@
 import type { Json } from "@/lib/database.types";
 
-export type AdminDataset = "sales" | "customer" | "target";
+export type AdminDataset = "sales" | "customer" | "target" | "exchange";
+export type AdminReportDataset = Exclude<AdminDataset, "exchange">;
 
 export type AdminColumnType = "text" | "number" | "date";
 export type AdminFilterType = "text" | "dateRange";
@@ -12,7 +13,7 @@ export type AdminReportKind = "detail" | "aggregate";
 
 export type AdminReportJoin = {
   alias: string;
-  dataset: AdminDataset;
+  dataset: AdminReportDataset;
   leftKey: string;
   rightKey: string;
   type?: AdminReportJoinType;
@@ -46,7 +47,7 @@ export type AdminReportConfig = {
   title: string;
   kind?: AdminReportKind;
   description?: string;
-  baseDataset: AdminDataset;
+  baseDataset: AdminReportDataset;
   filters?: AdminViewFilter[];
   joins?: AdminReportJoin[];
   dimensions?: AdminReportDimension[];
@@ -88,7 +89,7 @@ export type AdminViewConfig = {
 
 export type AdminReportConfigRecord = {
   id: string;
-  dataset: AdminDataset;
+  dataset: AdminReportDataset;
   title: string;
   kind: AdminReportKind;
   config: AdminReportConfig;
@@ -148,6 +149,20 @@ export type AdminDataRecord = {
   target_new_customers?: number | null;
   target_equity_sales_amount?: number | null;
   target_service_sales_amount?: number | null;
+  currency_code?: string | null;
+  exchange_rate_to_cny?: number | null;
+  amount_cny?: number | null;
+  receivable_amount_cny?: number | null;
+  payment_amount_cny?: number | null;
+  equity_amount_cny?: number | null;
+  service_amount_cny?: number | null;
+  target_equity_sales_amount_cny?: number | null;
+  target_service_sales_amount_cny?: number | null;
+  period_month?: string;
+  from_currency?: string | null;
+  to_currency?: string | null;
+  rate?: number | null;
+  source_file?: string | null;
   document_no?: string | null;
   document_type?: string | null;
   customer_gender?: string | null;

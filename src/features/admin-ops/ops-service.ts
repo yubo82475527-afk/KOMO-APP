@@ -36,13 +36,20 @@ export async function getOpsOverviewData(input?: OverviewQueryInput): Promise<Op
   const firstError = salesResult.error ?? customerResult.error ?? targetResult.error ?? taskResult.error ?? unboundResult.error;
   if (firstError) return { state: "error", message: firstError.message };
 
+  const currencyContext = await resolveOverviewCurrencyContext(context.adminClient, scope, {
+    sales: (salesResult.data ?? []) as unknown as AdminBusinessRecordRow[],
+    targets: (targetResult.data ?? []) as unknown as StoreDailyTargetRow[],
+  });
+  if ("state" in currencyContext) return currencyContext;
+
   const stores = buildStorePerformance({
     sales: (salesResult.data ?? []) as unknown as AdminBusinessRecordRow[],
     customers: (customerResult.data ?? []) as unknown as AdminCustomerRecordRow[],
     targets: (targetResult.data ?? []) as unknown as StoreDailyTargetRow[],
+    currencyContext,
   });
 
-  const metrics = buildOverviewMetrics(stores);
+  const metrics = buildOverviewMetrics(stores, currencyContext.displayCurrency);
   const alerts = buildAlerts(range.startDate, range.endDate, stores, scope.currentDepartmentId);
 
   return {
@@ -56,6 +63,9 @@ export async function getOpsOverviewData(input?: OverviewQueryInput): Promise<Op
       scopeType: scope.scopeType,
       visibleOrgUnits: scope.visibleOrgUnits,
       switcherOptions: scope.switcherOptions,
+      displayCurrency: currencyContext.displayCurrency,
+      currencyMode: currencyContext.currencyMode,
+      missingExchangeRates: currencyContext.missingExchangeRates,
     },
     metrics,
     stores: stores.sort((left, right) => right.sales - left.sales),
@@ -130,23 +140,33 @@ export async function updateOpsTask(id: string, input: UpdateOpsTaskInput) {
   return { state: "success" as const, task: mapTaskRow(data) };
 }
 
-function buildStorePerformance(input: { sales: AdminBusinessRecordRow[]; customers: AdminCustomerRecordRow[]; targets: StoreDailyTargetRow[] }) {
+type OverviewCurrencyContext = {
+  displayCurrency: string;
+  currencyMode: "base" | "local";
+  currencyByOrgUnit: Map<string, string>;
+  ratesByMonthCurrency: Map<string, number>;
+  missingExchangeRates: string[];
+};
+
+function buildStorePerformance(input: { sales: AdminBusinessRecordRow[]; customers: AdminCustomerRecordRow[]; targets: StoreDailyTargetRow[]; currencyContext: OverviewCurrencyContext }) {
   const stores = new Map<string, OpsStorePerformance>();
 
   input.targets.forEach((target) => {
     const store = ensureStore(stores, target.org_unit);
+    store.currencyCode = target.currency_code ?? input.currencyContext.currencyByOrgUnit.get(target.org_unit) ?? null;
     store.targetNewCustomers += Number(target.target_new_customers ?? 0);
-    store.targetEquitySales += Number(target.target_equity_sales_amount ?? 0);
-    store.targetServiceSales += Number(target.target_service_sales_amount ?? 0);
+    store.targetEquitySales += getTargetAmount(target, "equity", input.currencyContext);
+    store.targetServiceSales += getTargetAmount(target, "service", input.currencyContext);
     store.hasTarget = true;
   });
 
   input.sales.forEach((sale) => {
     if (!sale.org_unit) return;
     const store = ensureStore(stores, sale.org_unit);
-    const equityAmount = getEquitySaleAmount(sale);
-    const serviceAmount = getServiceSaleAmount(sale);
-    const amount = equityAmount + serviceAmount || getNumericValue(sale.amount);
+    store.currencyCode = sale.currency_code ?? input.currencyContext.currencyByOrgUnit.get(sale.org_unit) ?? null;
+    const equityAmount = getEquitySaleAmount(sale, input.currencyContext);
+    const serviceAmount = getServiceSaleAmount(sale, input.currencyContext);
+    const amount = equityAmount + serviceAmount || getSaleAmount(sale, input.currencyContext);
     store.sales += amount;
     store.equitySales += equityAmount;
     store.serviceSales += serviceAmount;
@@ -161,7 +181,7 @@ function buildStorePerformance(input: { sales: AdminBusinessRecordRow[]; custome
   return [...stores.values()];
 }
 
-function buildOverviewMetrics(stores: OpsStorePerformance[]) {
+function buildOverviewMetrics(stores: OpsStorePerformance[], currencyCode: string) {
   const actualSales = sum(stores, "sales");
   const actualNewCustomers = sum(stores, "newCustomers");
   const actualEquitySales = sum(stores, "equitySales");
@@ -170,12 +190,13 @@ function buildOverviewMetrics(stores: OpsStorePerformance[]) {
   const targetEquitySales = sum(stores, "targetEquitySales");
   const targetServiceSales = sum(stores, "targetServiceSales");
 
-  return [
+  const metrics = [
     { key: "sales" as const, label: "销售", actual: actualSales, target: targetEquitySales + targetServiceSales, achievementRate: getRate(actualSales, targetEquitySales + targetServiceSales) },
     { key: "newCustomers" as const, label: "新客", actual: actualNewCustomers, target: targetNewCustomers, achievementRate: getRate(actualNewCustomers, targetNewCustomers) },
     { key: "equitySales" as const, label: "权益销售", actual: actualEquitySales, target: targetEquitySales, achievementRate: getRate(actualEquitySales, targetEquitySales) },
     { key: "serviceSales" as const, label: "项目销售", actual: actualServiceSales, target: targetServiceSales, achievementRate: getRate(actualServiceSales, targetServiceSales) },
   ];
+  return metrics.map((metric) => (metric.key === "newCustomers" ? metric : { ...metric, currencyCode }));
 }
 
 function buildAlerts(startDate: string, endDate: string, stores: OpsStorePerformance[], scopeDepartmentId: string | null) {
@@ -243,6 +264,7 @@ function ensureStore(stores: Map<string, OpsStorePerformance>, orgUnit: string) 
     targetEquitySales: 0,
     targetServiceSales: 0,
     hasTarget: false,
+    currencyCode: null,
   };
   stores.set(orgUnit, next);
   return next;
@@ -265,6 +287,59 @@ function mapTaskRow(row: OpsTaskRow): OpsTask {
   };
 }
 
+async function resolveOverviewCurrencyContext(
+  adminClient: ReturnType<typeof import("@/lib/supabase/admin").createSupabaseAdminClient>,
+  scope: AdminOrgScope,
+  rows: { sales: AdminBusinessRecordRow[]; targets: StoreDailyTargetRow[] },
+): Promise<OverviewCurrencyContext | { state: "error"; message: string }> {
+  if (scope.state !== "ready") return { state: "error", message: scope.message };
+  if (scope.visibleOrgUnits.length === 0) {
+    return { displayCurrency: "CNY", currencyMode: "base", currencyByOrgUnit: new Map(), ratesByMonthCurrency: new Map(), missingExchangeRates: [] };
+  }
+
+  const months = [
+    ...new Set(
+      [
+        ...rows.sales.map((row) => getRecordMonth(row.record_date)),
+        ...rows.targets.map((row) => getRecordMonth(row.target_date)),
+      ].filter((month): month is string => Boolean(month)),
+    ),
+  ];
+  const [departmentResult, rateResult] = await Promise.all([
+    adminClient.from("departments").select("name, currency_code").in("name", scope.visibleOrgUnits),
+    months.length > 0 ? adminClient.from("exchange_rates").select("period_month, from_currency, to_currency, rate").in("period_month", months).eq("to_currency", "CNY") : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (departmentResult.error) return { state: "error", message: departmentResult.error.message };
+  if (rateResult.error) return { state: "error", message: rateResult.error.message };
+
+  const currencyByOrgUnit = new Map<string, string>();
+  const currencies = new Set<string>();
+  ((departmentResult.data ?? []) as Array<{ name: string; currency_code: string | null }>).forEach((department) => {
+    const currency = normalizeCurrency(department.currency_code) || "CNY";
+    currencyByOrgUnit.set(department.name, currency);
+    currencies.add(currency);
+  });
+  const ratesByMonthCurrency = new Map<string, number>();
+  ((rateResult.data ?? []) as Array<{ period_month: string; from_currency: string; rate: number | string }>).forEach((rate) => {
+    ratesByMonthCurrency.set(getRateKey(rate.period_month, rate.from_currency), Number(rate.rate));
+  });
+  months.forEach((month) => ratesByMonthCurrency.set(getRateKey(month, "CNY"), 1));
+
+  const shouldUseLocal = scope.scopeType === "store" || (scope.scopeType === "department" && currencies.size === 1 && !scope.isHeadquarters);
+  const displayCurrency = shouldUseLocal ? [...currencies][0] ?? "CNY" : "CNY";
+  return {
+    displayCurrency,
+    currencyMode: displayCurrency === "CNY" ? "base" : "local",
+    currencyByOrgUnit,
+    ratesByMonthCurrency,
+    missingExchangeRates: findMissingExchangeRates(rows, currencyByOrgUnit, ratesByMonthCurrency),
+  };
+}
+
+function getSaleAmount(row: AdminBusinessRecordRow, currencyContext: OverviewCurrencyContext) {
+  return currencyContext.currencyMode === "base" ? convertRowAmount(row, row.amount_cny, row.amount, currencyContext) : getNumericValue(row.amount);
+}
+
 function isEquitySale(row: AdminBusinessRecordRow) {
   if (row.sale_type?.trim() === "权益") return true;
   if (row.sale_type?.trim() === "项目") return false;
@@ -279,14 +354,68 @@ function isServiceSale(row: AdminBusinessRecordRow) {
   return /项目|服务|护理|养护|service|scalp|hair|care|treatment/i.test(haystack) && !isEquitySale(row);
 }
 
-function getEquitySaleAmount(row: AdminBusinessRecordRow) {
+function getEquitySaleAmount(row: AdminBusinessRecordRow, currencyContext: OverviewCurrencyContext) {
   if (!isEquitySale(row)) return 0;
-  return getNumericValue(row.receivable_amount ?? row.amount);
+  return currencyContext.currencyMode === "base" ? convertRowAmount(row, row.equity_amount_cny ?? row.receivable_amount_cny ?? row.amount_cny, row.receivable_amount ?? row.amount, currencyContext) : getNumericValue(row.receivable_amount ?? row.amount);
 }
 
-function getServiceSaleAmount(row: AdminBusinessRecordRow) {
+function getServiceSaleAmount(row: AdminBusinessRecordRow, currencyContext: OverviewCurrencyContext) {
   if (!isServiceSale(row)) return 0;
-  return getNumericValue(row.amount ?? row.receivable_amount);
+  return currencyContext.currencyMode === "base" ? convertRowAmount(row, row.service_amount_cny ?? row.amount_cny ?? row.receivable_amount_cny, row.amount ?? row.receivable_amount, currencyContext) : getNumericValue(row.amount ?? row.receivable_amount);
+}
+
+function getTargetAmount(row: StoreDailyTargetRow, kind: "equity" | "service", currencyContext: OverviewCurrencyContext) {
+  if (currencyContext.currencyMode === "base") {
+    const converted = kind === "equity" ? row.target_equity_sales_amount_cny : row.target_service_sales_amount_cny;
+    const original = kind === "equity" ? row.target_equity_sales_amount : row.target_service_sales_amount;
+    return convertTargetAmount(row, converted, original, currencyContext);
+  }
+  return kind === "equity" ? getNumericValue(row.target_equity_sales_amount) : getNumericValue(row.target_service_sales_amount);
+}
+
+function convertRowAmount(row: AdminBusinessRecordRow, convertedValue: number | string | null | undefined, originalValue: number | string | null | undefined, currencyContext: OverviewCurrencyContext) {
+  if (convertedValue !== null && convertedValue !== undefined) return getNumericValue(convertedValue);
+  const rate = getRuntimeRate(row.org_unit, row.record_date, row.currency_code, currencyContext);
+  return rate === null ? 0 : getNumericValue(originalValue) * rate;
+}
+
+function convertTargetAmount(row: StoreDailyTargetRow, convertedValue: number | string | null | undefined, originalValue: number | string | null | undefined, currencyContext: OverviewCurrencyContext) {
+  if (convertedValue !== null && convertedValue !== undefined) return getNumericValue(convertedValue);
+  const rate = getRuntimeRate(row.org_unit, row.target_date, row.currency_code, currencyContext);
+  return rate === null ? 0 : getNumericValue(originalValue) * rate;
+}
+
+function getRuntimeRate(orgUnit: string | null | undefined, date: string | null | undefined, currencyCode: string | null | undefined, currencyContext: OverviewCurrencyContext) {
+  const currency = normalizeCurrency(currencyCode) || (orgUnit ? currencyContext.currencyByOrgUnit.get(orgUnit) : "") || "";
+  const month = getRecordMonth(date);
+  if (!currency || !month) return null;
+  return currencyContext.ratesByMonthCurrency.get(getRateKey(month, currency)) ?? null;
+}
+
+function findMissingExchangeRates(rows: { sales: AdminBusinessRecordRow[]; targets: StoreDailyTargetRow[] }, currencyByOrgUnit: Map<string, string>, ratesByMonthCurrency: Map<string, number>) {
+  const missing = new Set<string>();
+  [...rows.sales, ...rows.targets].forEach((row) => {
+    const orgUnit = row.org_unit;
+    const date = "record_date" in row ? row.record_date : row.target_date;
+    const currency = normalizeCurrency(row.currency_code) || (orgUnit ? currencyByOrgUnit.get(orgUnit) : "") || "";
+    const month = getRecordMonth(date);
+    if (!currency || !month) return;
+    if (!ratesByMonthCurrency.has(getRateKey(month, currency))) missing.add(`${month.slice(0, 7)} ${currency}->CNY`);
+  });
+  return [...missing];
+}
+
+function getRecordMonth(date: string | null | undefined) {
+  return date ? `${date.slice(0, 7)}-01` : "";
+}
+
+function getRateKey(month: string, currency: string) {
+  return `${month}:${normalizeCurrency(currency)}`;
+}
+
+function normalizeCurrency(value: string | null | undefined) {
+  const text = String(value ?? "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(text) ? text : "";
 }
 
 function getNumericValue(value: number | string | null | undefined) {
@@ -408,3 +537,5 @@ function formatDate(date: Date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+

@@ -238,6 +238,7 @@ function findHeaderRowIndex(rows: XlsxCellValue[][], config: AdminViewConfig) {
 }
 
 function inferDatasetFromFileName(fileName: string, currentDataset: AdminDataset): AdminDataset {
+  if (/汇率|exchange|rate/i.test(fileName)) return "exchange";
   if (fileName.includes("目标")) return "target";
   return fileName.includes("客户") ? "customer" : currentDataset;
 }
@@ -261,6 +262,9 @@ function downloadTemplate(dataset: AdminDataset, config: AdminViewConfig, datase
 function getTemplateColumns(dataset: AdminDataset, config: AdminViewConfig) {
   if (dataset === "sales") {
     return config.exportColumns;
+  }
+  if (dataset === "exchange") {
+    return ["period_month", "from_currency", "to_currency", "rate"];
   }
   return config.columns.map((column) => column.key);
 }

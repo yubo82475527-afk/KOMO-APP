@@ -4,7 +4,8 @@ export function parseCsv(csv: string) {
     return { headers: [] as string[], rows: [] as string[][] };
   }
 
-  const [headerRow, ...dataRows] = splitCsvRows(normalized);
+  const delimiter = detectDelimiter(normalized);
+  const [headerRow, ...dataRows] = splitCsvRows(normalized, delimiter);
   const headers = (headerRow ?? []).map((header) => header.trim());
   const rows = dataRows
     .filter((row) => row.some((value) => value.trim()))
@@ -16,7 +17,15 @@ export function toCsv(headers: string[], rows: Array<Array<string | number | nul
   return [headers, ...rows].map((row) => row.map(formatCsvCell).join(",")).join("\r\n");
 }
 
-function splitCsvRows(text: string) {
+function detectDelimiter(text: string) {
+  const firstLine = text.split(/\r?\n|\r/, 1)[0] ?? "";
+  const candidates = [",", "\t", ";"];
+  return candidates
+    .map((delimiter) => ({ delimiter, count: firstLine.split(delimiter).length }))
+    .sort((left, right) => right.count - left.count)[0]?.delimiter ?? ",";
+}
+
+function splitCsvRows(text: string, delimiter: string) {
   const rows: string[][] = [];
   let values: string[] = [];
   let current = "";
@@ -30,7 +39,7 @@ function splitCsvRows(text: string) {
       index += 1;
     } else if (char === '"') {
       inQuotes = !inQuotes;
-    } else if (char === "," && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       values.push(current);
       current = "";
     } else if ((char === "\n" || char === "\r") && !inQuotes) {

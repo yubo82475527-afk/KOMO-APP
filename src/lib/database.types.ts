@@ -10,6 +10,9 @@ export type Database = {
           head_id: string | null;
           name: string;
           sort_order: number;
+          org_type: "global" | "country" | "region" | "store";
+          country_code: string | null;
+          currency_code: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["departments"]["Row"]> & { name: string };
@@ -187,7 +190,7 @@ export type Database = {
       admin_data_uploads: {
         Row: {
           id: string;
-          dataset: "sales" | "customer" | "target";
+          dataset: "sales" | "customer" | "target" | "exchange";
           uploaded_by: string | null;
           file_name: string;
           total_rows: number;
@@ -197,7 +200,7 @@ export type Database = {
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["admin_data_uploads"]["Row"]> & {
-          dataset: "sales" | "customer" | "target";
+          dataset: "sales" | "customer" | "target" | "exchange";
           file_name: string;
         };
         Update: Partial<Database["public"]["Tables"]["admin_data_uploads"]["Row"]>;
@@ -216,6 +219,11 @@ export type Database = {
         Row: StoreDailyTargetRow;
         Insert: StoreDailyTargetInsert;
         Update: Partial<StoreDailyTargetRow>;
+      };
+      exchange_rates: {
+        Row: ExchangeRateRow;
+        Insert: ExchangeRateInsert;
+        Update: Partial<ExchangeRateRow>;
       };
       ops_tasks: {
         Row: OpsTaskRow;
@@ -315,6 +323,13 @@ export type AdminBusinessRecordRow = {
   cashier: string | null;
   accounting_date: string | null;
   operation_time: string | null;
+  currency_code: string | null;
+  exchange_rate_to_cny: number | null;
+  amount_cny: number | null;
+  receivable_amount_cny: number | null;
+  payment_amount_cny: number | null;
+  equity_amount_cny: number | null;
+  service_amount_cny: number | null;
   raw_data: Json;
   upload_id: string | null;
   created_by: string | null;
@@ -362,6 +377,10 @@ export type StoreDailyTargetRow = {
   target_new_customers: number;
   target_equity_sales_amount: number;
   target_service_sales_amount: number;
+  currency_code: string | null;
+  exchange_rate_to_cny: number | null;
+  target_equity_sales_amount_cny: number | null;
+  target_service_sales_amount_cny: number | null;
   remark: string | null;
   raw_data: Json;
   upload_id: string | null;
@@ -373,6 +392,26 @@ export type StoreDailyTargetRow = {
 export type StoreDailyTargetInsert = Partial<StoreDailyTargetRow> & {
   target_date: string;
   org_unit: string;
+};
+
+export type ExchangeRateRow = {
+  id: string;
+  period_month: string;
+  from_currency: string;
+  to_currency: string;
+  rate: number;
+  source_file: string | null;
+  raw_data: Json;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExchangeRateInsert = Partial<ExchangeRateRow> & {
+  period_month: string;
+  from_currency: string;
+  to_currency: string;
+  rate: number;
 };
 
 export type OpsTaskRow = {

@@ -120,7 +120,7 @@ export function AdminShell({ active, viewer, scope, children }: AdminShellProps)
   const [manualExpandedDomain, setManualExpandedDomain] = useState<{ routeKey: string | undefined; key: string | null }>({ routeKey: undefined, key: null });
   const expandedDomainKey = manualExpandedDomain.routeKey === activeDomainKey ? manualExpandedDomain.key : activeDomainKey;
   const [clientScope, setClientScope] = useState(scope ?? null);
-  const activeScope = scope ?? clientScope;
+  const activeScope = clientScope ?? scope;
 
   useEffect(() => {
     if (pendingNavigation?.type === "admin" && pendingNavigation.view === routeActive) {

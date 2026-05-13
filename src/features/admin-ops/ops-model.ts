@@ -11,6 +11,7 @@ export type OpsOverviewMetric = {
   actual: number;
   target: number;
   achievementRate: number | null;
+  currencyCode?: string;
 };
 
 export type OpsScopeSummary = {
@@ -20,6 +21,9 @@ export type OpsScopeSummary = {
   scopeType: "company" | "department" | "store";
   visibleOrgUnits: string[];
   switcherOptions: AdminScopeOption[];
+  displayCurrency: string;
+  currencyMode: "base" | "local";
+  missingExchangeRates: string[];
 };
 
 export type OpsStorePerformance = {
@@ -32,6 +36,7 @@ export type OpsStorePerformance = {
   targetEquitySales: number;
   targetServiceSales: number;
   hasTarget: boolean;
+  currencyCode?: string | null;
 };
 
 export type OpsAlert = {

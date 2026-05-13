@@ -1,8 +1,8 @@
-import type { AdminBusinessRecordInsert, AdminBusinessRecordRow, AdminCustomerRecordInsert, AdminCustomerRecordRow, Database, Json, StoreDailyTargetInsert, StoreDailyTargetRow } from "@/lib/database.types";
+import type { AdminBusinessRecordInsert, AdminBusinessRecordRow, AdminCustomerRecordInsert, AdminCustomerRecordRow, Database, ExchangeRateInsert, ExchangeRateRow, Json, StoreDailyTargetInsert, StoreDailyTargetRow } from "@/lib/database.types";
 import { applyOrgUnitScope, resolveAdminOrgScope } from "@/features/admin/admin-org-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedAppContext } from "@/features/auth/app-context";
-import { adminDatasets, defaultAdminReportConfigs, defaultAdminViewConfigs, normalizeAdminDataset, normalizeAdminViewConfig, validateAdminReportConfig, validateAdminViewConfig } from "./admin-data-config";
+import { adminDatasets, defaultAdminReportConfigs, defaultAdminViewConfigs, normalizeAdminDataset, normalizeAdminReportDataset, normalizeAdminViewConfig, validateAdminReportConfig, validateAdminViewConfig } from "./admin-data-config";
 import type {
   AdminAggregatedReportResult,
   AdminDataRecord,
@@ -29,12 +29,6 @@ type AdminContext =
       profileDepartmentId: string | null;
       roles: string[];
     };
-
-const datasetTables: Record<AdminDataset, "sales_records" | "customer_records" | "store_daily_targets"> = {
-  sales: "sales_records",
-  customer: "customer_records",
-  target: "store_daily_targets",
-};
 
 const salesTemplateKeys = [
   "sale_type",
@@ -136,6 +130,11 @@ const writableRecordKeys = [
   "target_new_customers",
   "target_equity_sales_amount",
   "target_service_sales_amount",
+  "period_month",
+  "from_currency",
+  "to_currency",
+  "rate",
+  "source_file",
 ] as const;
 
 export async function getAdminDataContext(): Promise<AdminContext> {
@@ -323,10 +322,11 @@ export async function duplicateAdminReportConfig(reportId: string) {
 }
 
 function normalizeAdminReportConfigRow(row: AdminReportConfigRow): AdminReportConfigRecord {
-  const config = normalizeAdminReportConfig(row.config, normalizeAdminDataset(row.dataset));
+  const dataset = normalizeAdminReportDataset(row.dataset);
+  const config = normalizeAdminReportConfig(row.config, dataset);
   return {
     id: row.id,
-    dataset: normalizeAdminDataset(row.dataset),
+    dataset,
     title: row.title,
     kind: row.kind,
     config,
@@ -338,7 +338,7 @@ function normalizeAdminReportConfigRow(row: AdminReportConfigRow): AdminReportCo
 
 function normalizeAdminReportConfig(value: unknown, fallbackDataset?: AdminDataset): AdminReportConfig {
   const candidate = value && typeof value === "object" ? (value as Partial<AdminReportConfig>) : {};
-  const dataset = normalizeAdminDataset(candidate.baseDataset ?? fallbackDataset);
+  const dataset = normalizeAdminReportDataset(candidate.baseDataset ?? fallbackDataset);
   const fallback = defaultAdminReportConfigs.find((item) => item.id === candidate.id) ?? defaultAdminReportConfigs.find((item) => item.baseDataset === dataset) ?? defaultAdminReportConfigs[0];
 
   return {
@@ -371,6 +371,10 @@ export function parseAdminDataCsv(input: { dataset: AdminDataset; fileName: stri
     errors.push({ row: 1, message: "CSV 文件为空或缺少表头。" });
   }
 
+  if (headers.length > 0 && rows.length === 0) {
+    errors.push({ row: 2, message: "没有读取到数据行，请确认文件中表头下面至少有一行数据，并重新保存后上传。" });
+  }
+
   input.config.import.requiredColumns.forEach((key) => {
     if (!normalizedHeaders.includes(key)) {
       errors.push({ row: 1, column: key, message: `缺少必填列：${key}` });
@@ -395,6 +399,43 @@ export function parseAdminDataCsv(input: { dataset: AdminDataset; fileName: stri
     });
 
     const rowNumber = rowIndex + 2;
+    if (input.dataset === "exchange") {
+      const periodMonth = normalizeMonth(raw.period_month || raw.record_date);
+      const fromCurrency = normalizeCurrency(raw.from_currency || raw.currency_code);
+      const toCurrency = normalizeCurrency(raw.to_currency) || "CNY";
+      const rate = normalizeOptionalNumber(raw.rate ?? raw.amount);
+
+      if (!periodMonth) {
+        errors.push({ row: rowNumber, column: "period_month", message: "月份不能为空，请使用 YYYY-MM 或 YYYY-MM-DD。" });
+      }
+      if (!fromCurrency) {
+        errors.push({ row: rowNumber, column: "from_currency", message: "源币种不能为空。" });
+      }
+      if (rate === null || rate <= 0) {
+        errors.push({ row: rowNumber, column: "rate", message: "汇率必须是大于 0 的数字。" });
+      }
+      if (!periodMonth || !fromCurrency || rate === null || rate <= 0) {
+        return;
+      }
+
+      parsedRows.push({
+        period_month: periodMonth,
+        from_currency: fromCurrency,
+        to_currency: toCurrency,
+        rate,
+        source_file: input.fileName,
+        org_unit: null,
+        employee_no: null,
+        person_name: null,
+        quantity: null,
+        category: null,
+        reference_no: `${periodMonth}:${fromCurrency}:${toCurrency}`,
+        remark: null,
+        raw_data: rawOriginal,
+      });
+      return;
+    }
+
     if (input.dataset === "target") {
       const targetDate = normalizeDate(raw.target_date);
       const orgUnit = normalizeNullableText(raw.org_unit);
@@ -614,18 +655,35 @@ export async function commitAdminDataImport(input: { dataset: AdminDataset; file
   let committedRows = input.rows.length;
   let insertError: { message: string } | null = null;
 
-  if (input.dataset === "target") {
+  if (input.dataset === "exchange") {
     insertError = (
-      await context.adminClient.from("store_daily_targets").upsert(
+      await context.adminClient.from("exchange_rates").upsert(
         input.rows.map((row) => ({
-          ...pickWritableTargetRecord(row),
-          upload_id: upload.id,
-          created_by: context.profileId,
+          ...pickWritableExchangeRate(row),
+          source_file: input.fileName,
+          uploaded_by: context.profileId,
           updated_at: new Date().toISOString(),
         })),
-        { onConflict: "target_date,org_unit" },
+        { onConflict: "period_month,from_currency,to_currency" },
       )
     ).error;
+  } else if (input.dataset === "target") {
+    const enrichedRows = await enrichTargetRowsWithCurrency(context.adminClient, input.rows);
+    if ("state" in enrichedRows) {
+      insertError = { message: enrichedRows.message ?? "目标数据币种折算失败。" };
+    } else {
+      insertError = (
+        await context.adminClient.from("store_daily_targets").upsert(
+          enrichedRows.rows.map((row) => ({
+            ...pickWritableTargetRecord(row),
+            upload_id: upload.id,
+            created_by: context.profileId,
+            updated_at: new Date().toISOString(),
+          })),
+          { onConflict: "target_date,org_unit" },
+        )
+      ).error;
+    }
   } else if (input.dataset === "customer") {
     const rows = dedupeCustomerRows(input.rows);
     committedRows = rows.length;
@@ -642,18 +700,23 @@ export async function commitAdminDataImport(input: { dataset: AdminDataset; file
         )
       ).error;
   } else {
-    const refreshError = await deleteExistingSalesRows(context.adminClient, input.rows);
-    insertError =
-      refreshError ??
-      (
-        await context.adminClient.from(datasetTables[input.dataset]).insert(
-          input.rows.map((row) => ({
-            ...pickWritableRecord(row),
-            upload_id: upload.id,
-            created_by: context.profileId,
-          })),
-        )
-      ).error;
+    const enrichedRows = await enrichSalesRowsWithCurrency(context.adminClient, input.rows);
+    if ("state" in enrichedRows) {
+      insertError = { message: enrichedRows.message ?? "销售数据币种折算失败。" };
+    } else {
+      const refreshError = await deleteExistingSalesRows(context.adminClient, enrichedRows.rows);
+      insertError =
+        refreshError ??
+        (
+          await context.adminClient.from("sales_records").insert(
+            enrichedRows.rows.map((row) => ({
+              ...pickWritableRecord(row),
+              upload_id: upload.id,
+              created_by: context.profileId,
+            })),
+          )
+        ).error;
+    }
   }
 
   if (insertError) {
@@ -691,7 +754,9 @@ export async function listAdminDataRecords(filters: AdminReportFilters): Promise
 
   let query = buildFilteredQuery(context.adminClient, dataset, filters, "*", { count: "exact" }, scope);
   query =
-    dataset === "customer"
+    dataset === "exchange"
+      ? query.order("period_month", { ascending: false }).order("from_currency", { ascending: true }).range(from, to)
+      : dataset === "customer"
       ? query.order("created_on", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).range(from, to)
       : dataset === "target"
         ? query.order("target_date", { ascending: false }).order("created_at", { ascending: false }).range(from, to)
@@ -710,7 +775,9 @@ export async function listAdminDataRecords(filters: AdminReportFilters): Promise
     report: report ?? undefined,
     columns: report?.columns ?? config.columns,
     rows:
-      dataset === "customer"
+      dataset === "exchange"
+        ? ((data ?? []) as unknown as ExchangeRateRow[]).map(mapExchangeRateRow)
+        : dataset === "customer"
         ? ((data ?? []) as unknown as AdminCustomerRecordRow[]).map(mapCustomerRow)
         : dataset === "target"
           ? ((data ?? []) as unknown as StoreDailyTargetRow[]).map(mapTargetRow)
@@ -782,7 +849,9 @@ export async function exportAdminDataCsv(filters: AdminReportFilters) {
   if (scope.state === "error") return scope;
   const query = buildFilteredQuery(context.adminClient, dataset, filters, "*", undefined, scope);
   const { data, error } = await (
-    dataset === "customer"
+    dataset === "exchange"
+      ? query.order("period_month", { ascending: false }).order("from_currency", { ascending: true })
+      : dataset === "customer"
       ? query.order("created_on", { ascending: false, nullsFirst: false })
       : dataset === "target"
         ? query.order("target_date", { ascending: false })
@@ -796,7 +865,7 @@ export async function exportAdminDataCsv(filters: AdminReportFilters) {
   const columns = report?.columns?.length ? report.columns.map((column) => column.key) : config.exportColumns;
   const labelMap = new Map((report?.columns?.length ? report.columns : config.columns).map((column) => [column.key, column.label]));
   const headers = columns.map((key) => labelMap.get(key) ?? key);
-  const rows = ((data ?? []) as unknown as Array<AdminBusinessRecordRow | AdminCustomerRecordRow | StoreDailyTargetRow>).map((row) => columns.map((key) => formatRecordValue(row, key)));
+  const rows = ((data ?? []) as unknown as Array<AdminBusinessRecordRow | AdminCustomerRecordRow | StoreDailyTargetRow | ExchangeRateRow>).map((row) => columns.map((key) => formatRecordValue(row, key)));
 
   return {
     state: "success" as const,
@@ -941,7 +1010,9 @@ async function loadReportDatasetRows(
 ): Promise<{ rows: AdminDataRecord[] } | { state: "error"; message: string }> {
   const query = buildFilteredQuery(adminClient, dataset, { ...filters, dataset }, "*", undefined, scope).limit(10000);
   const orderedQuery =
-    dataset === "customer"
+    dataset === "exchange"
+      ? query.order("period_month", { ascending: false }).order("from_currency", { ascending: true })
+      : dataset === "customer"
       ? query.order("created_on", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false })
       : dataset === "target"
         ? query.order("target_date", { ascending: false }).order("created_at", { ascending: false })
@@ -951,7 +1022,9 @@ async function loadReportDatasetRows(
 
   return {
     rows:
-      dataset === "customer"
+      dataset === "exchange"
+        ? ((data ?? []) as unknown as ExchangeRateRow[]).map(mapExchangeRateRow)
+        : dataset === "customer"
         ? ((data ?? []) as unknown as AdminCustomerRecordRow[]).map(mapCustomerRow)
         : dataset === "target"
           ? ((data ?? []) as unknown as StoreDailyTargetRow[]).map(mapTargetRow)
@@ -1015,6 +1088,37 @@ function toNumber(value: string | number | null) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function getEquityAmountFromRecord(row: AdminDataRecord) {
+  if (!isEquityDataRecord(row)) return null;
+  return row.receivable_amount ?? row.amount ?? null;
+}
+
+function getServiceAmountFromRecord(row: AdminDataRecord) {
+  if (!isServiceDataRecord(row)) return null;
+  return row.amount ?? row.receivable_amount ?? null;
+}
+
+function isEquityDataRecord(row: AdminDataRecord) {
+  if (row.sale_type?.trim() === "权益") return true;
+  if (row.sale_type?.trim() === "项目") return false;
+  const haystack = [row.sale_type, row.sale_category, row.payment_method, row.related_equity, row.item_name, getRawRecordText(row.raw_data)].join(" ");
+  return /权益|套餐|储值|会员|package|membership|member|wallet/i.test(haystack);
+}
+
+function isServiceDataRecord(row: AdminDataRecord) {
+  if (row.sale_type?.trim() === "项目") return true;
+  if (row.sale_type?.trim() === "权益") return false;
+  const haystack = [row.sale_type, row.sale_category, row.item_name, row.category, row.remark, getRawRecordText(row.raw_data)].join(" ");
+  return /项目|服务|护理|养护|service|scalp|hair|care|treatment/i.test(haystack) && !isEquityDataRecord(row);
+}
+
+function getRawRecordText(rawData: Json) {
+  if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) return "";
+  return Object.values(rawData)
+    .map((value) => String(value ?? ""))
+    .join(" ");
+}
+
 function sortAggregatedRows(rows: Array<Record<string, string | number | null>>, report: AdminReportConfig) {
   const sort = report.defaultSort;
   if (!sort) return rows;
@@ -1032,11 +1136,11 @@ function sortAggregatedRows(rows: Array<Record<string, string | number | null>>,
 function buildFilteredQuery(adminClient: AdminClient, dataset: AdminDataset, filters: AdminReportFilters, columns = "*", options?: { count?: "exact" | "planned" | "estimated"; head?: boolean }, scope?: Awaited<ReturnType<typeof resolveAdminOrgScope>>) {
   let query = getDatasetTable(adminClient, dataset).select(columns, options);
 
-  const dateColumn = dataset === "customer" ? "created_on" : dataset === "target" ? "target_date" : "record_date";
+  const dateColumn = dataset === "customer" ? "created_on" : dataset === "target" ? "target_date" : dataset === "exchange" ? "period_month" : "record_date";
   if (filters.startDate) query = query.gte(dateColumn, filters.startDate);
   if (filters.endDate) query = query.lte(dateColumn, filters.endDate);
   if (filters.orgUnit) query = query.ilike("org_unit", `%${filters.orgUnit}%`);
-  if (scope) query = applyOrgUnitScope(query, scope, { allowHeadquartersAll: true });
+  if (scope && dataset !== "exchange") query = applyOrgUnitScope(query, scope, { allowHeadquartersAll: true });
   if (filters.personName && dataset !== "target") query = dataset === "customer" ? query.ilike("customer_name", `%${filters.personName}%`) : query.ilike("person_name", `%${filters.personName}%`);
   if (filters.category && dataset !== "target") query = dataset === "customer" ? query.ilike("tags", `%${filters.category}%`) : query.ilike("category", `%${filters.category}%`);
   if (filters.keyword) {
@@ -1044,6 +1148,8 @@ function buildFilteredQuery(adminClient: AdminClient, dataset: AdminDataset, fil
     query =
       dataset === "target"
         ? query.or(`org_unit.ilike.%${keyword}%,remark.ilike.%${keyword}%`)
+        : dataset === "exchange"
+        ? query.or(`from_currency.ilike.%${keyword}%,to_currency.ilike.%${keyword}%,source_file.ilike.%${keyword}%`)
         : dataset === "customer"
         ? query.or(`org_unit.ilike.%${keyword}%,customer_name.ilike.%${keyword}%,customer_no.ilike.%${keyword}%,phone.ilike.%${keyword}%,email.ilike.%${keyword}%,remark.ilike.%${keyword}%`)
         : query.or(`org_unit.ilike.%${keyword}%,person_name.ilike.%${keyword}%,employee_no.ilike.%${keyword}%,reference_no.ilike.%${keyword}%,remark.ilike.%${keyword}%,customer_name.ilike.%${keyword}%,customer_no.ilike.%${keyword}%,customer_phone.ilike.%${keyword}%,document_no.ilike.%${keyword}%,item_name.ilike.%${keyword}%`);
@@ -1053,6 +1159,13 @@ function buildFilteredQuery(adminClient: AdminClient, dataset: AdminDataset, fil
 }
 
 async function getAdminDataSummary(adminClient: AdminClient, dataset: AdminDataset, filters: AdminReportFilters, scope: Awaited<ReturnType<typeof resolveAdminOrgScope>>): Promise<{ amount: number; quantity: number }> {
+  if (dataset === "exchange") {
+    const { data } = await buildFilteredQuery(adminClient, dataset, filters, "rate", undefined, scope).limit(5000);
+    return {
+      amount: ((data ?? []) as unknown as Array<{ rate: number | string | null }>).reduce((sum, row) => sum + Number(row.rate ?? 0), 0),
+      quantity: (data ?? []).length,
+    };
+  }
   if (dataset === "customer") {
     const { data } = await buildFilteredQuery(adminClient, dataset, filters, "total_consumptions", undefined, scope).limit(5000);
     return {
@@ -1079,6 +1192,7 @@ async function getAdminDataSummary(adminClient: AdminClient, dataset: AdminDatas
 }
 
 function getDatasetTable(adminClient: AdminClient, dataset: AdminDataset) {
+  if (dataset === "exchange") return adminClient.from("exchange_rates");
   if (dataset === "target") return adminClient.from("store_daily_targets");
   if (dataset === "customer") return adminClient.from("customer_records");
   return adminClient.from("sales_records");
@@ -1105,6 +1219,20 @@ function normalizeDate(value: string | undefined) {
 function normalizeOptionalDate(value: string | undefined) {
   if (!String(value ?? "").trim()) return null;
   return normalizeDate(value) || null;
+}
+
+function normalizeMonth(value: string | undefined) {
+  const date = normalizeDate(value);
+  if (date) return `${date.slice(0, 7)}-01`;
+  const text = String(value ?? "").trim().replaceAll("/", "-");
+  const match = text.match(/^(\d{4})-(\d{1,2})$/);
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-01`;
+}
+
+function normalizeCurrency(value: string | undefined | null) {
+  const text = String(value ?? "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(text) ? text : "";
 }
 
 function normalizeOptionalTimestamp(value: string | undefined) {
@@ -1200,6 +1328,111 @@ function dedupeCustomerRows(rows: AdminDataRecord[]) {
   return [...keyedRows.values(), ...rowsWithoutCustomerNo];
 }
 
+type CurrencyMeta = {
+  currencyByOrgUnit: Map<string, string>;
+  ratesByMonthCurrency: Map<string, number>;
+};
+
+type CurrencyEnrichmentResult = { rows: AdminDataRecord[] } | { state: "error"; message: string };
+
+async function loadCurrencyMeta(adminClient: AdminClient, rows: AdminDataRecord[]): Promise<CurrencyMeta | { state: "error"; message: string }> {
+  const orgUnits = uniqueNonEmpty(rows.map((row) => row.org_unit));
+  const months = uniqueNonEmpty(rows.map((row) => getRowMonth(row)));
+
+  const [departmentResult, rateResult] = await Promise.all([
+    orgUnits.length > 0 ? adminClient.from("departments").select("name, currency_code").in("name", orgUnits) : Promise.resolve({ data: [], error: null }),
+    months.length > 0 ? adminClient.from("exchange_rates").select("period_month, from_currency, to_currency, rate").in("period_month", months).eq("to_currency", "CNY") : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (departmentResult.error) return { state: "error" as const, message: departmentResult.error.message };
+  if (rateResult.error) return { state: "error" as const, message: rateResult.error.message };
+
+  const currencyByOrgUnit = new Map<string, string>();
+  ((departmentResult.data ?? []) as Array<{ name: string; currency_code: string | null }>).forEach((department) => {
+    const currency = normalizeCurrency(department.currency_code);
+    if (currency) currencyByOrgUnit.set(department.name, currency);
+  });
+
+  const ratesByMonthCurrency = new Map<string, number>();
+  ((rateResult.data ?? []) as Array<{ period_month: string; from_currency: string; to_currency: string; rate: number | string }>).forEach((rate) => {
+    ratesByMonthCurrency.set(getRateKey(rate.period_month, rate.from_currency), Number(rate.rate));
+  });
+  months.forEach((month) => ratesByMonthCurrency.set(getRateKey(month, "CNY"), 1));
+
+  return { currencyByOrgUnit, ratesByMonthCurrency };
+}
+
+async function enrichSalesRowsWithCurrency(adminClient: AdminClient, rows: AdminDataRecord[]): Promise<CurrencyEnrichmentResult> {
+  const meta = await loadCurrencyMeta(adminClient, rows);
+  if ("state" in meta) return meta;
+
+  const missing = new Set<string>();
+  const enriched = rows.map((row) => {
+    const currency = normalizeCurrency(row.currency_code) || getCurrencyForOrgUnit(meta.currencyByOrgUnit, row.org_unit);
+    const month = getRowMonth(row);
+    const rate = currency && month ? meta.ratesByMonthCurrency.get(getRateKey(month, currency)) : undefined;
+    if (!currency) missing.add(`${row.org_unit ?? "未绑定门店"} 缺少币种`);
+    if (currency && !rate) missing.add(`${month} ${currency}->CNY 缺少汇率`);
+    const effectiveRate = rate ?? 1;
+    return {
+      ...row,
+      currency_code: currency || null,
+      exchange_rate_to_cny: rate ?? null,
+      amount_cny: convertToCny(row.amount, effectiveRate),
+      receivable_amount_cny: convertToCny(row.receivable_amount, effectiveRate),
+      payment_amount_cny: convertToCny(row.payment_amount, effectiveRate),
+      equity_amount_cny: convertToCny(getEquityAmountFromRecord(row), effectiveRate),
+      service_amount_cny: convertToCny(getServiceAmountFromRecord(row), effectiveRate),
+    };
+  });
+
+  if (missing.size > 0) return { state: "error" as const, message: `缺少币种或汇率：${[...missing].slice(0, 8).join("；")}` };
+  return { rows: enriched };
+}
+
+async function enrichTargetRowsWithCurrency(adminClient: AdminClient, rows: AdminDataRecord[]): Promise<CurrencyEnrichmentResult> {
+  const meta = await loadCurrencyMeta(adminClient, rows);
+  if ("state" in meta) return meta;
+
+  const missing = new Set<string>();
+  const enriched = rows.map((row) => {
+    const currency = normalizeCurrency(row.currency_code) || getCurrencyForOrgUnit(meta.currencyByOrgUnit, row.org_unit);
+    const month = getRowMonth(row);
+    const rate = currency && month ? meta.ratesByMonthCurrency.get(getRateKey(month, currency)) : undefined;
+    if (!currency) missing.add(`${row.org_unit ?? "未绑定门店"} 缺少币种`);
+    if (currency && !rate) missing.add(`${month} ${currency}->CNY 缺少汇率`);
+    const effectiveRate = rate ?? 1;
+    return {
+      ...row,
+      currency_code: currency || null,
+      exchange_rate_to_cny: rate ?? null,
+      target_equity_sales_amount_cny: convertToCny(row.target_equity_sales_amount, effectiveRate),
+      target_service_sales_amount_cny: convertToCny(row.target_service_sales_amount, effectiveRate),
+    };
+  });
+
+  if (missing.size > 0) return { state: "error" as const, message: `缺少币种或汇率：${[...missing].slice(0, 8).join("；")}` };
+  return { rows: enriched };
+}
+
+function getCurrencyForOrgUnit(currencyByOrgUnit: Map<string, string>, orgUnit: string | null | undefined) {
+  return orgUnit ? currencyByOrgUnit.get(orgUnit) ?? "" : "";
+}
+
+function getRowMonth(row: AdminDataRecord) {
+  const date = row.record_date ?? row.target_date ?? row.period_month;
+  return date ? `${date.slice(0, 7)}-01` : "";
+}
+
+function getRateKey(month: string, currency: string) {
+  return `${month}:${normalizeCurrency(currency)}`;
+}
+
+function convertToCny(value: number | null | undefined, rate: number) {
+  if (value === null || value === undefined) return null;
+  return Math.round(Number(value) * rate * 100) / 100;
+}
+
 function uniqueNonEmpty(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
@@ -1255,6 +1488,13 @@ function pickWritableRecord(row: AdminDataRecord): AdminBusinessRecordInsert {
     cashier: row.cashier,
     accounting_date: row.accounting_date,
     operation_time: row.operation_time,
+    currency_code: row.currency_code,
+    exchange_rate_to_cny: row.exchange_rate_to_cny,
+    amount_cny: row.amount_cny,
+    receivable_amount_cny: row.receivable_amount_cny,
+    payment_amount_cny: row.payment_amount_cny,
+    equity_amount_cny: row.equity_amount_cny,
+    service_amount_cny: row.service_amount_cny,
     raw_data: row.raw_data,
   };
 }
@@ -1288,7 +1528,22 @@ function pickWritableTargetRecord(row: AdminDataRecord): StoreDailyTargetInsert 
     target_new_customers: row.target_new_customers ?? 0,
     target_equity_sales_amount: row.target_equity_sales_amount ?? 0,
     target_service_sales_amount: row.target_service_sales_amount ?? 0,
+    currency_code: row.currency_code,
+    exchange_rate_to_cny: row.exchange_rate_to_cny,
+    target_equity_sales_amount_cny: row.target_equity_sales_amount_cny,
+    target_service_sales_amount_cny: row.target_service_sales_amount_cny,
     remark: row.remark,
+    raw_data: row.raw_data,
+  };
+}
+
+function pickWritableExchangeRate(row: AdminDataRecord): ExchangeRateInsert {
+  return {
+    period_month: row.period_month ?? "",
+    from_currency: normalizeCurrency(row.from_currency) || "CNY",
+    to_currency: normalizeCurrency(row.to_currency) || "CNY",
+    rate: row.rate ?? 1,
+    source_file: row.source_file,
     raw_data: row.raw_data,
   };
 }
@@ -1337,6 +1592,13 @@ function mapBusinessRow(row: AdminBusinessRecordRow): AdminDataRecord {
     cashier: row.cashier,
     accounting_date: row.accounting_date,
     operation_time: row.operation_time,
+    currency_code: row.currency_code,
+    exchange_rate_to_cny: row.exchange_rate_to_cny === null ? null : Number(row.exchange_rate_to_cny),
+    amount_cny: row.amount_cny === null ? null : Number(row.amount_cny),
+    receivable_amount_cny: row.receivable_amount_cny === null ? null : Number(row.receivable_amount_cny),
+    payment_amount_cny: row.payment_amount_cny === null ? null : Number(row.payment_amount_cny),
+    equity_amount_cny: row.equity_amount_cny === null ? null : Number(row.equity_amount_cny),
+    service_amount_cny: row.service_amount_cny === null ? null : Number(row.service_amount_cny),
     raw_data: row.raw_data,
   };
 }
@@ -1383,11 +1645,34 @@ function mapTargetRow(row: StoreDailyTargetRow): AdminDataRecord {
     target_new_customers: Number(row.target_new_customers ?? 0),
     target_equity_sales_amount: Number(row.target_equity_sales_amount ?? 0),
     target_service_sales_amount: Number(row.target_service_sales_amount ?? 0),
+    currency_code: row.currency_code,
+    exchange_rate_to_cny: row.exchange_rate_to_cny === null ? null : Number(row.exchange_rate_to_cny),
+    target_equity_sales_amount_cny: row.target_equity_sales_amount_cny === null ? null : Number(row.target_equity_sales_amount_cny),
+    target_service_sales_amount_cny: row.target_service_sales_amount_cny === null ? null : Number(row.target_service_sales_amount_cny),
     raw_data: row.raw_data,
   };
 }
 
-function formatRecordValue(row: AdminBusinessRecordRow | AdminCustomerRecordRow | StoreDailyTargetRow, key: string) {
+function mapExchangeRateRow(row: ExchangeRateRow): AdminDataRecord {
+  return {
+    id: row.id,
+    period_month: row.period_month,
+    from_currency: row.from_currency,
+    to_currency: row.to_currency,
+    rate: Number(row.rate),
+    source_file: row.source_file,
+    org_unit: null,
+    employee_no: null,
+    person_name: null,
+    quantity: null,
+    category: null,
+    reference_no: `${row.period_month}:${row.from_currency}:${row.to_currency}`,
+    remark: null,
+    raw_data: row.raw_data,
+  };
+}
+
+function formatRecordValue(row: AdminBusinessRecordRow | AdminCustomerRecordRow | StoreDailyTargetRow | ExchangeRateRow, key: string) {
   const value = row[key as keyof typeof row];
   if (value === null || value === undefined) return "";
   if (typeof value === "number" || typeof value === "string") return value;
